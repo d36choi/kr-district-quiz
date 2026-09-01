@@ -1,9 +1,5 @@
 @import "./tokens.css";
 
-/* CDN이 막힌 환경에서는 에러 없이 시스템 이모지 폰트로 조용히 대체된다.
-   토스 앱 WebView 안에서 jsdelivr CDN 도달성은 단정하지 않는다 — 실제 확인은
-   /ait:test-on-device(번들 업로드 → 콘솔 컴파일 확인 → 토스 앱에서 열기)로 한다. */
-
 *,
 *::before,
 *::after {
@@ -12,19 +8,12 @@
 
 body {
   margin: 0;
-  font-family: "Tossface", -apple-system, system-ui, "Malgun Gothic", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "Malgun Gothic", sans-serif;
   word-break: keep-all;
   overflow-wrap: break-word;
   letter-spacing: 0;
   color: var(--color-text-default);
   background: var(--color-bg);
-}
-
-/* 본문·데이터 안에 섞인 이모지를 감싸는 클래스 — Tossface 폰트 스택이 이미
-   맨 앞에 있어도, 아이콘처럼 개별 렌더를 보장해야 할 때 명시적으로 쓴다. */
-.tf {
-  font-family: "Tossface", sans-serif;
-  font-style: normal;
 }
 
 /* 화면 배경이 뷰포트 전체를 채우게 한다(1-7) — 콘텐츠가 짧아도 아래쪽에
