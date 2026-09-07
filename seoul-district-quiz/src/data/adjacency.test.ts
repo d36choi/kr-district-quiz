@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { getNeighbors } from './adjacency'
+import { ADJACENCY_BY_REGION_ID, getNeighbors } from './adjacency'
 import { REGIONS_BY_ID, getRegion } from './regions'
 
 describe('서울·경기 인접 관계', () => {
   it('모든 인접 관계는 존재하는 지역끼리 양방향으로 연결된다', () => {
-    for (const region of Object.values(REGIONS_BY_ID)) {
-      for (const neighborId of getNeighbors(region.id)) {
-        expect(REGIONS_BY_ID[neighborId], `${region.id} -> ${neighborId}`).toBeDefined()
-        expect(getNeighbors(neighborId), `${neighborId} -> ${region.id}`).toContain(region.id)
+    for (const [regionId, neighborIds] of Object.entries(ADJACENCY_BY_REGION_ID)) {
+      expect(REGIONS_BY_ID[regionId], `unknown adjacency key: ${regionId}`).toBeDefined()
+
+      for (const neighborId of neighborIds) {
+        expect(REGIONS_BY_ID[neighborId], `${regionId} -> ${neighborId}`).toBeDefined()
+        expect(getNeighbors(neighborId), `${neighborId} -> ${regionId}`).toContain(regionId)
       }
     }
   })

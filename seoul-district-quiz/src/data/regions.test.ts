@@ -2,9 +2,24 @@ import { describe, expect, it } from 'vitest'
 import {
   REGION_PACKS,
   REGIONS_BY_ID,
+  buildRegionCatalog,
   getRegion,
   getTopLevelRegions,
 } from './regions'
+import type { Region } from './regions'
+
+function createTestRegion(id: string, geometryId = id): Region {
+  return {
+    id,
+    packId: 'seoul',
+    name: id,
+    level: 'district',
+    parentId: 'seoul',
+    geometryId,
+    neighborIds: [],
+    aliases: [],
+  }
+}
 
 describe('서울·경기 지역 카탈로그', () => {
   it('경기 최상위 지역은 정확히 31개 시·군이다', () => {
@@ -47,6 +62,38 @@ describe('서울·경기 지역 카탈로그', () => {
         '화성시',
       ].toSorted(),
     )
+  })
+
+  it('카탈로그 생성 중 중복 지역 ID를 거부한다', () => {
+    expect(() =>
+      buildRegionCatalog([
+        createTestRegion('seoul:duplicate', 'geometry:first'),
+        createTestRegion('seoul:duplicate', 'geometry:second'),
+      ]),
+    ).toThrowError('Duplicate region id: seoul:duplicate')
+  })
+
+  it('카탈로그 생성 중 중복 geometry ID를 거부한다', () => {
+    expect(() =>
+      buildRegionCatalog([
+        createTestRegion('seoul:first', 'geometry:duplicate'),
+        createTestRegion('seoul:second', 'geometry:duplicate'),
+      ]),
+    ).toThrowError('Duplicate region geometryId: geometry:duplicate')
+  })
+
+  it('전체 카탈로그의 지역 ID는 빠짐없이 고유하다', () => {
+    const regions = Object.values(REGIONS_BY_ID)
+
+    expect(regions).toHaveLength(68)
+    expect(new Set(regions.map(({ id }) => id)).size).toBe(68)
+  })
+
+  it('전체 카탈로그의 geometry ID는 빠짐없이 고유하다', () => {
+    const regions = Object.values(REGIONS_BY_ID)
+
+    expect(regions).toHaveLength(68)
+    expect(new Set(regions.map(({ geometryId }) => geometryId)).size).toBe(68)
   })
 
   it('세부 구는 올바른 도시의 자식으로 연결된다', () => {

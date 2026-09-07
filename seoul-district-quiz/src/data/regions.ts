@@ -177,9 +177,26 @@ const ALL_REGIONS = [
   ...GYEONGGI_DISTRICTS,
 ]
 
-export const REGIONS_BY_ID: Readonly<Record<string, Region>> = Object.freeze(
-  Object.fromEntries(ALL_REGIONS.map((region) => [region.id, region])),
-)
+export function buildRegionCatalog(regions: readonly Region[]): Readonly<Record<string, Region>> {
+  const regionsById: Record<string, Region> = Object.create(null)
+  const geometryIds = new Set<string>()
+
+  for (const region of regions) {
+    if (Object.hasOwn(regionsById, region.id)) {
+      throw new Error(`Duplicate region id: ${region.id}`)
+    }
+    if (geometryIds.has(region.geometryId)) {
+      throw new Error(`Duplicate region geometryId: ${region.geometryId}`)
+    }
+
+    regionsById[region.id] = region
+    geometryIds.add(region.geometryId)
+  }
+
+  return Object.freeze(regionsById)
+}
+
+export const REGIONS_BY_ID = buildRegionCatalog(ALL_REGIONS)
 
 export const REGION_PACKS: Readonly<Record<RegionPackId, RegionPack>> = Object.freeze({
   seoul: Object.freeze({
