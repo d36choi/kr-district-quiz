@@ -1,0 +1,16 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc" style="color:#A9433D">
+  <title id="title">지도 조각</title>
+  <desc id="desc">서울의 자치구를 맞물린 지도 조각으로 표현한 로고</desc>
+  <defs>
+    <path id="seoul" d="M8 44 18 36 27 32 34 28 39 15 48 10 55 22 64 18 71 28 83 30 90 40 87 47 96 53 89 63 84 73 73 76 66 88 55 84 44 91 34 81 22 80 17 69 8 64 13 54Z"/>
+    <clipPath id="clip"><use href="#seoul"/></clipPath>
+  </defs>
+  <g clip-path="url(#clip)" fill="currentColor" stroke="var(--canvas, #F7F5F0)" stroke-width="3.2" stroke-linejoin="round">
+    <path d="M5 8h44l5 28-15 14H5Z"/>
+    <path d="M49 8h47v34L73 50 54 36Z" opacity=".84"/>
+    <path d="M5 50h34l9 13-10 31H5Z" opacity=".84"/>
+    <path d="m39 50 15-14 19 14-5 19-20-6Z"/>
+    <path d="m73 50 23-8v52H68l-1-25Z" opacity=".84"/>
+    <path d="m38 94 10-31 19 6 1 25Z"/>
+  </g>
+</svg>

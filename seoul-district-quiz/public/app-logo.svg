@@ -1,0 +1,13 @@
+<svg viewBox="0 0 600 600" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Seoul Geo-Quiz app icon</title>
+  <desc id="desc">서울의 외곽선과 한강을 단순화한 앱 아이콘</desc>
+  <rect width="600" height="600" fill="#F7F5F0"/>
+  <g transform="translate(72 72) scale(4.56)">
+    <defs>
+      <path id="seoul" d="M8 44 18 36 27 32 34 28 39 15 48 10 55 22 64 18 71 28 83 30 90 40 87 47 96 53 89 63 84 73 73 76 66 88 55 84 44 91 34 81 22 80 17 69 8 64 13 54Z"/>
+      <clipPath id="seoul-clip"><use href="#seoul"/></clipPath>
+    </defs>
+    <use href="#seoul" fill="#A9433D"/>
+    <path d="M5 55C19 50 30 59 42 55S62 45 74 50s17 10 25 5" fill="none" stroke="#3D7C8A" stroke-width="7" stroke-linecap="round" clip-path="url(#seoul-clip)"/>
+  </g>
+</svg>

@@ -1,4 +1,5 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
+import { DISTRICT_NAME_BY_MAP_ID } from '../data/districts'
 
 type AnswerResult = { correct: boolean; answer: string }
 type DistrictPath = { id: string; name: string; path: string }
@@ -7,35 +8,8 @@ type LoadState =
   | { status: 'ready'; paths: DistrictPath[] }
   | { status: 'error'; paths: DistrictPath[] }
 
-const DISTRICT_NAMES: Readonly<Record<string, string>> = {
-  'Dobong-gu': '도봉구',
-  'Dongdaemun-gu': '동대문구',
-  'Dongjak-gu': '동작구',
-  'Eunpyeong-gu': '은평구',
-  'Gangbuk-gu': '강북구',
-  'Gangdong-gu': '강동구',
-  'Gangseo-gu': '강서구',
-  'Geumcheon-gu': '금천구',
-  'Guro-gu': '구로구',
-  'Gwanak-gu': '관악구',
-  'Gwangjin-gu': '광진구',
-  'Gangnam-gu': '강남구',
-  'Jongno-gu': '종로구',
-  'Jung-gu': '중구',
-  'Jungnang-gu': '중랑구',
-  'Mapo-gu': '마포구',
-  'Nowon-gu': '노원구',
-  'Seocho-gu': '서초구',
-  'Seodaemun-gu': '서대문구',
-  'Seongbuk-gu': '성북구',
-  'Seongdong-gu': '성동구',
-  'Songpa-gu': '송파구',
-  'Yangcheon-gu': '양천구',
-  'Yeongdeungpo-gu_1_': '영등포구',
-  'Yongsan-gu': '용산구',
-}
-
 const SEOUL_MAP_URL = `${import.meta.env.BASE_URL}seoul-district.svg`
+const EMPTY_DISTRICTS: readonly string[] = []
 let districtPathsPromise: Promise<DistrictPath[]> | null = null
 
 function parseDistrictPaths(svgText: string) {
@@ -45,7 +19,7 @@ function parseDistrictPaths(svgText: string) {
 
   const paths = Array.from(document.querySelectorAll('path')).flatMap((element) => {
     const id = element.id
-    const name = DISTRICT_NAMES[id]
+    const name = DISTRICT_NAME_BY_MAP_ID[id]
     const path = element.getAttribute('d')
     return name && path ? [{ id: id === 'Yeongdeungpo-gu_1_' ? 'Yeongdeungpo-gu' : id, name, path }] : []
   })
@@ -64,11 +38,32 @@ function loadDistrictPaths() {
   return districtPathsPromise
 }
 
-export function SeoulDistrictMap({ activeDistrict, result }: { activeDistrict: string; result: AnswerResult | null }) {
+export function SeoulDistrictMap({
+  activeDistrict,
+  result,
+  solvedDistricts = EMPTY_DISTRICTS,
+  interactive = true,
+  variant = 'quiz',
+  selectedDistrict: controlledSelectedDistrict,
+  onDistrictSelect,
+  onReady,
+}: {
+  activeDistrict: string
+  result: AnswerResult | null
+  solvedDistricts?: readonly string[]
+  interactive?: boolean
+  variant?: 'quiz' | 'typing' | 'collection'
+  selectedDistrict?: string
+  onDistrictSelect?: (district: string) => void
+  onReady?: () => void
+}) {
   const captionId = useId()
-  const [selectedDistrict, setSelectedDistrict] = useState(activeDistrict)
+  const [internalSelectedDistrict, setInternalSelectedDistrict] = useState(activeDistrict)
   const [loadState, setLoadState] = useState<LoadState>({ status: 'loading', paths: [] })
   const [loadAttempt, setLoadAttempt] = useState(0)
+  const pathNodes = useRef(new Map<string, SVGPathElement>())
+  const solvedSet = new Set(solvedDistricts)
+  const selectedDistrict = controlledSelectedDistrict ?? internalSelectedDistrict
 
   useEffect(() => {
     let isCurrent = true
@@ -84,17 +79,32 @@ export function SeoulDistrictMap({ activeDistrict, result }: { activeDistrict: s
     }
   }, [loadAttempt])
 
+  useEffect(() => {
+    if (loadState.status === 'ready') onReady?.()
+  }, [loadState.status, onReady])
+
   const retryLoad = () => {
     districtPathsPromise = null
     setLoadState({ status: 'loading', paths: [] })
     setLoadAttempt((attempt) => attempt + 1)
   }
 
+  const selectDistrict = (district: string) => {
+    setInternalSelectedDistrict(district)
+    onDistrictSelect?.(district)
+  }
+
   const mapState = result?.correct === false ? 'incorrect' : result?.correct ? 'correct' : 'active'
-  const caption = result ? `정답 지역: ${activeDistrict}` : '밝게 표시된 자치구를 맞혀보세요.'
+  const caption = result
+    ? `정답 지역: ${activeDistrict}`
+    : variant === 'typing'
+      ? `${solvedDistricts.length}개 자치구를 맞혔어요.`
+      : variant === 'collection'
+        ? `${solvedDistricts.length}개 자치구를 익혔어요. 지도를 눌러 각 지역을 확인해 보세요.`
+        : '밝게 표시된 자치구를 맞혀보세요.'
 
   return (
-    <figure className="map-card" aria-labelledby={captionId}>
+    <figure className={`map-card map-card--${variant}`} aria-labelledby={captionId}>
       {loadState.status === 'loading' ? (
         <div className="map-state" role="status">
           <span className="map-state__shape" aria-hidden="true" />
@@ -111,39 +121,70 @@ export function SeoulDistrictMap({ activeDistrict, result }: { activeDistrict: s
       ) : null}
 
       {loadState.status === 'ready' ? (
-        <svg className="seoul-map" viewBox="0 0 1400 1400" role="group" aria-label="서울 25개 자치구 지도">
-          {loadState.paths.map((district) => {
-            const isActive = district.name === activeDistrict
-            const isSelected = district.name === selectedDistrict
-            const className = [
-              'district',
-              isActive ? `district--${mapState}` : '',
-              isSelected ? 'district--selected' : '',
-            ].filter(Boolean).join(' ')
+        <div className="seoul-map-stage">
+          <svg className="seoul-map" viewBox="0 0 1400 1400" role="group" aria-label="서울 25개 자치구 지도">
+            {loadState.paths.map((district) => {
+              const isActive = district.name === activeDistrict
+              const isSolved = solvedSet.has(district.name)
+              const isSelected = interactive && district.name === selectedDistrict
+              const className = [
+                'district',
+                isActive ? `district--${mapState}` : '',
+                isSolved ? 'district--solved' : '',
+                isSelected ? 'district--selected' : '',
+              ].filter(Boolean).join(' ')
 
-            return (
-              <g
-                key={district.id}
-                className={className}
-                role="button"
-                tabIndex={0}
-                aria-current={isActive ? 'true' : undefined}
-                aria-label={`${district.name}${isActive ? ', 문제 지역' : ''}`}
-                aria-pressed={isSelected}
-                onClick={() => setSelectedDistrict(district.name)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault()
-                    setSelectedDistrict(district.name)
-                  }
-                }}
-              >
-                <path className="district-hitarea" d={district.path} />
-                <path className="district-shape" d={district.path} fillRule="evenodd" clipRule="evenodd" />
-              </g>
-            )
-          })}
-        </svg>
+              return (
+                <g
+                  key={district.id}
+                  className={className}
+                  role={interactive ? 'button' : undefined}
+                  tabIndex={interactive ? 0 : undefined}
+                  aria-current={isActive ? 'true' : undefined}
+                  aria-label={`${district.name}${isActive ? ', 문제 지역' : isSolved ? ', 맞힌 지역' : ''}`}
+                  aria-pressed={interactive ? isSelected : undefined}
+                  onClick={interactive ? () => selectDistrict(district.name) : undefined}
+                  onKeyDown={interactive ? (event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      selectDistrict(district.name)
+                    }
+                  } : undefined}
+                >
+                  <path className="district-hitarea" d={district.path} />
+                  <path
+                    ref={(node) => {
+                      if (node) pathNodes.current.set(district.name, node)
+                      else pathNodes.current.delete(district.name)
+                    }}
+                    className="district-shape"
+                    d={district.path}
+                    fillRule="evenodd"
+                    clipRule="evenodd"
+                  />
+                </g>
+              )
+            })}
+          </svg>
+          {variant === 'typing' && solvedDistricts.length > 0 ? (
+            <div className="map-label-layer" aria-hidden="true">
+              {solvedDistricts.map((district) => (
+                <span
+                  key={district}
+                  className="district-label"
+                  ref={(node) => {
+                    if (!node) return
+                    const path = pathNodes.current.get(district)
+                    if (!path) return
+                    const bounds = path.getBBox()
+                    node.style.left = `${((bounds.x + bounds.width / 2) / 1400) * 100}%`
+                    node.style.top = `${((bounds.y + bounds.height / 2) / 1400) * 100}%`
+                  }}
+                >{district}</span>
+              ))}
+            </div>
+          ) : null}
+        </div>
       ) : null}
 
       <figcaption id={captionId} aria-live="polite">

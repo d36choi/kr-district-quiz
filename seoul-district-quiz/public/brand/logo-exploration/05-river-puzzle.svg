@@ -1,0 +1,6 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc" style="color:#A9433D">
+  <title id="title">강의 퍼즐</title>
+  <desc id="desc">한강을 경계로 맞물리는 서울의 두 퍼즐 조각 로고</desc>
+  <path d="M8 44 18 36 27 32 34 28 39 15 48 10 55 22 64 18 71 28 83 30 90 40 87 47c-8 4-13 1-20-2-9-4-16 4-25 8-12 5-21-5-34 1l5-10Z" fill="currentColor"/>
+  <path d="M8 64c13-6 22 5 34 0 9-4 16-12 25-8 8 4 14 7 29-3l-7 10-5 10-11 3-7 12-11-4-11 7-10-10-12-1-5-11Z" fill="currentColor" opacity=".82"/>
+</svg>

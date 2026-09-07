@@ -1,0 +1,12 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc" style="color:#A9433D">
+  <title id="title">서울 완주</title>
+  <desc id="desc">학습 진척 링 안에 서울 지도를 담은 로고</desc>
+  <defs>
+    <path id="seoul" d="M22 47 30 40 38 37 42 25 49 22 55 31 63 28 68 37 78 40 75 48 82 54 75 63 67 66 62 77 52 72 44 79 36 70 27 69 25 60 18 56Z"/>
+    <clipPath id="clip"><use href="#seoul"/></clipPath>
+  </defs>
+  <circle cx="50" cy="50" r="39" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-dasharray="198 48" transform="rotate(-34 50 50)"/>
+  <circle cx="82" cy="24" r="5" fill="currentColor"/>
+  <use href="#seoul" fill="currentColor"/>
+  <path d="M16 54c13-5 23 6 34 1s18-10 34 0" fill="none" stroke="var(--river, #3D7C8A)" stroke-width="5" stroke-linecap="round" clip-path="url(#clip)"/>
+</svg>

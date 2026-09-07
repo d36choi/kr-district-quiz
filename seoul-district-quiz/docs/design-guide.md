@@ -99,9 +99,8 @@
 
 - 버튼 안에는 방향 화살표·꺾쇠를 넣지 않는다.
 - 이동·진입을 나타내는 꺾쇠는 `>` `‹` `›` 같은 텍스트 문자가 아니라 반드시
-  SVG 아이콘을 쓴다. 이 프로젝트가 React 계열이면 `src/components/icons.tsx`,
-  vanilla 계열이면 `src/assets/icons/*.svg`의 6종(chevron-right·left·down·
-  up·close·search)을 쓴다. 색은 `currentColor`로 부모에서 상속한다.
+  아이콘 컴포넌트를 쓴다. 이 React 프로젝트는 `lucide-react`를 사용하며 자체
+  SVG 아이콘 컴포넌트를 만들지 않는다. 색은 `currentColor`로 부모에서 상속한다.
 - 아이콘은 제작자 자신의 세트나 오픈 라이선스 아이콘을 쓴다 — 토스 내부
   아이콘은 외부 제작자용으로 라이선스가 열려 있지 않을 수 있다.
 

@@ -1,0 +1,14 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc" style="color:#A9433D">
+  <title id="title">서울 등고선</title>
+  <desc id="desc">반복 학습을 서울 지형의 등고선으로 표현한 로고</desc>
+  <defs>
+    <path id="seoul" d="M8 44 18 36 27 32 34 28 39 15 48 10 55 22 64 18 71 28 83 30 90 40 87 47 96 53 89 63 84 73 73 76 66 88 55 84 44 91 34 81 22 80 17 69 8 64 13 54Z"/>
+    <clipPath id="clip"><use href="#seoul"/></clipPath>
+  </defs>
+  <g clip-path="url(#clip)" fill="none" stroke="currentColor" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">
+    <use href="#seoul"/>
+    <path d="M18 47 28 39 38 35 42 23 49 18 55 28 63 25 68 34 79 36 83 44 79 51 87 55 81 64 72 67 64 80 55 76 45 84 37 75 27 74 23 65 16 60 20 52Z"/>
+    <path d="M29 49 38 42 46 32 53 36 61 33 66 42 73 43 70 51 78 56 69 62 61 69 52 65 44 73 37 65 28 61 33 55Z"/>
+  </g>
+  <circle cx="53" cy="51" r="4.5" fill="currentColor"/>
+</svg>

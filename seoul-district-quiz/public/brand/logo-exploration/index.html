@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Seoul Geo-Quiz — Logo Exploration</title>
+  <style>
+    :root {
+      --ink: #1f2937;
+      --muted: #687482;
+      --paper: #f7f5f0;
+      --line: #d9d7d1;
+      --brand: #a9433d;
+      --river: #3d7c8a;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: Inter, Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      word-break: keep-all;
+    }
+
+    body::before {
+      position: fixed;
+      inset: 0;
+      z-index: 10;
+      pointer-events: none;
+      content: "";
+      opacity: .025;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+
+    .page { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 88px 0 72px; }
+    header { display: grid; grid-template-columns: 1fr auto; gap: 40px; align-items: end; margin-bottom: 84px; }
+    .eyebrow { margin: 0 0 14px; color: var(--brand); font: 600 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .16em; text-transform: uppercase; }
+    h1 { max-width: 780px; margin: 0; font-size: clamp(42px, 7vw, 82px); font-weight: 500; line-height: .98; letter-spacing: -.055em; }
+    .intro { max-width: 560px; margin: 26px 0 0; color: var(--muted); font-size: 17px; line-height: 1.75; }
+    .meta { text-align: right; color: var(--muted); font: 500 12px/1.8 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; text-transform: uppercase; }
+
+    .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 18px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .toolbar p { margin: 0; font-size: 15px; }
+    .swatches { display: flex; gap: 10px; }
+    .swatch { width: 44px; height: 44px; border: 1px solid rgba(31, 41, 55, .16); border-radius: 50%; cursor: pointer; transition: transform .2s ease; }
+    .swatch:hover, .swatch:focus-visible { transform: scale(1.08); outline: 2px solid var(--ink); outline-offset: 3px; }
+
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin-top: 56px; background: var(--line); border: 1px solid var(--line); }
+    .card { min-width: 0; padding: 28px; background: var(--paper); transition: background .35s ease; }
+    .canvas { position: relative; display: grid; place-items: center; aspect-ratio: 1; overflow: hidden; background: #fff; transition: background .35s ease; }
+    .canvas::after { position: absolute; inset: 12px; border: 1px solid rgba(31, 41, 55, .08); content: ""; pointer-events: none; }
+    .logo { width: 48%; color: var(--brand); transition: transform .6s cubic-bezier(.16, 1, .3, 1), filter .35s ease; }
+    .card:hover .logo { transform: scale(1.07) rotate(-1deg); }
+    .number { margin: 26px 0 9px; color: var(--river); font: 600 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .14em; }
+    h2 { margin: 0 0 12px; font-size: 22px; font-weight: 600; letter-spacing: -.025em; }
+    .card p { min-height: 72px; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.7; }
+    .download { display: inline-flex; align-items: center; min-height: 44px; margin-top: 18px; color: var(--ink); font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; text-decoration: none; border-bottom: 1px solid var(--ink); }
+
+    .recommendation { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; margin-top: 96px; background: var(--line); border: 1px solid var(--line); }
+    .recommendation-copy { display: flex; flex-direction: column; justify-content: center; padding: clamp(34px, 6vw, 72px); background: #f2eee5; }
+    .recommendation-copy h2 { max-width: 460px; font-size: clamp(30px, 4vw, 54px); font-weight: 500; line-height: 1.05; }
+    .recommendation-copy p { max-width: 500px; margin: 20px 0 0; color: var(--muted); font-size: 16px; line-height: 1.75; }
+    .recommendation-canvas { display: grid; place-items: center; min-height: 520px; background: var(--brand); }
+    .recommendation-canvas img { width: 46%; color: white; filter: brightness(0) invert(1); }
+    footer { display: flex; justify-content: space-between; gap: 24px; margin-top: 72px; padding-top: 22px; color: var(--muted); font: 500 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; text-transform: uppercase; border-top: 1px solid var(--line); }
+
+    body.dark { --paper: #171b20; --ink: #f7f5f0; --muted: #aeb7c2; --line: #343a42; }
+    body.dark .canvas { background: #222831; }
+    body.dark .recommendation-copy { background: #20262d; }
+    body.dark .canvas::after { border-color: rgba(255, 255, 255, .09); }
+    body.mono { --brand: #1f2937; --river: #8794a1; }
+    body.dark.mono { --brand: #f7f5f0; --river: #8794a1; }
+
+    @media (max-width: 880px) {
+      header, .recommendation { grid-template-columns: 1fr; }
+      .meta { text-align: left; }
+      .grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    @media (max-width: 580px) {
+      .page { width: min(100% - 24px, 1180px); padding-top: 54px; }
+      header { margin-bottom: 48px; }
+      .toolbar { align-items: flex-start; flex-direction: column; }
+      .grid { grid-template-columns: 1fr; margin-top: 32px; }
+      .card p { min-height: 0; }
+      .recommendation { margin-top: 56px; }
+      .recommendation-canvas { min-height: 360px; }
+      footer { flex-direction: column; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header>
+      <div>
+        <p class="eyebrow">Identity study / Seoul / 2026</p>
+        <h1>서울을 조각조각,<br />내 지도로.</h1>
+        <p class="intro">서울 25개 자치구를 익히는 짧은 퀴즈 경험을 위해, 서울의 외곽선·한강·지도 조각·완주 진척을 여섯 가지 방식으로 추상화했습니다.</p>
+      </div>
+      <div class="meta">Seoul Geo-Quiz<br />Logo exploration<br />6 directions</div>
+    </header>
+
+    <section class="toolbar" aria-label="미리보기 설정">
+      <p>배경과 색상 환경에서 축소 인지성을 비교해 보세요.</p>
+      <div class="swatches">
+        <button class="swatch" type="button" style="background:#f7f5f0" aria-label="밝은 배경" data-theme="light"></button>
+        <button class="swatch" type="button" style="background:#171b20" aria-label="어두운 배경" data-theme="dark"></button>
+        <button class="swatch" type="button" style="background:linear-gradient(135deg,#1f2937 50%,#f7f5f0 50%)" aria-label="단색 로고" data-theme="mono"></button>
+      </div>
+    </section>
+
+    <section class="grid" aria-label="로고 시안 6개">
+      <article class="card">
+        <div class="canvas"><img class="logo" src="01-hangang-cut.svg" alt="한강의 틈 로고" /></div>
+        <div class="number">01 / RECOMMENDED</div><h2>한강의 틈</h2>
+        <p>서울 외곽선 하나와 한강 한 줄만 남긴 가장 직접적인 상징입니다. 작은 앱 아이콘에서도 서울의 인상이 빠르게 읽힙니다.</p>
+        <a class="download" href="01-hangang-cut.svg" download>SVG 내려받기</a>
+      </article>
+      <article class="card">
+        <div class="canvas"><img class="logo" src="02-twenty-five-districts.svg" alt="스물다섯 구 로고" /></div>
+        <div class="number">02 / DOT MATRIX</div><h2>스물다섯 구</h2>
+        <p>정확히 25개의 점을 서울 형태로 배치했습니다. 한강은 점 사이의 여백으로 드러나며, 수집과 도장깨기 경험을 강조합니다.</p>
+        <a class="download" href="02-twenty-five-districts.svg" download>SVG 내려받기</a>
+      </article>
+      <article class="card">
+        <div class="canvas"><img class="logo" src="03-map-tiles.svg" alt="지도 조각 로고" /></div>
+        <div class="number">03 / MODULAR</div><h2>지도 조각</h2>
+        <p>맞물린 면을 자치구와 퍼즐 조각으로 동시에 보이게 했습니다. 게임성과 단계별 해금이라는 제품 구조가 선명합니다.</p>
+        <a class="download" href="03-map-tiles.svg" download>SVG 내려받기</a>
+      </article>
+      <article class="card">
+        <div class="canvas"><img class="logo" src="04-progress-orbit.svg" alt="서울 완주 로고" /></div>
+        <div class="number">04 / PROGRESS</div><h2>서울 완주</h2>
+        <p>진행 링과 서울 지도를 결합했습니다. 매일 한 세트씩 채워 가는 학습 루프와 전체 25구 완주를 함께 상징합니다.</p>
+        <a class="download" href="04-progress-orbit.svg" download>SVG 내려받기</a>
+      </article>
+      <article class="card">
+        <div class="canvas"><img class="logo" src="05-river-puzzle.svg" alt="강의 퍼즐 로고" /></div>
+        <div class="number">05 / NEGATIVE SPACE</div><h2>강의 퍼즐</h2>
+        <p>한강을 경계로 두 지도 조각이 맞물립니다. 서울의 핵심 지형을 부담 없는 퍼즐 게임의 언어로 바꾼 방향입니다.</p>
+        <a class="download" href="05-river-puzzle.svg" download>SVG 내려받기</a>
+      </article>
+      <article class="card">
+        <div class="canvas"><img class="logo" src="06-seoul-contours.svg" alt="서울 등고선 로고" /></div>
+        <div class="number">06 / LAYERED</div><h2>서울 등고선</h2>
+        <p>반복되는 윤곽은 복습할수록 선명해지는 기억을 뜻합니다. 중앙점은 지금 배우는 한 자치구에 집중하는 퀴즈를 나타냅니다.</p>
+        <a class="download" href="06-seoul-contours.svg" download>SVG 내려받기</a>
+      </article>
+    </section>
+
+    <section class="recommendation">
+      <div class="recommendation-copy">
+        <p class="eyebrow">Primary direction</p>
+        <h2>가장 적게 그려도,<br />서울은 남습니다.</h2>
+        <p><strong>01 한강의 틈</strong>을 1차 추천안으로 선정했습니다. 외곽선은 퀴즈의 대상인 서울을, 한강색 한 줄은 위치를 떠올리는 학습 방식을 표현합니다.</p>
+        <a class="download" href="seoul-geo-quiz-logo.svg" download>추천 로고 SVG 내려받기</a>
+      </div>
+      <div class="recommendation-canvas"><img src="seoul-geo-quiz-logo.svg" alt="추천 로고 한강의 틈" /></div>
+    </section>
+
+    <footer><span>Seoul Geo-Quiz</span><span>Dan-cheong red #A9433D / Han river blue #3D7C8A</span></footer>
+  </main>
+  <script>
+    const body = document.body;
+    document.querySelectorAll('[data-theme]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const theme = button.dataset.theme;
+        body.classList.toggle('dark', theme === 'dark');
+        body.classList.toggle('mono', theme === 'mono');
+      });
+    });
+  </script>
+</body>
+</html>

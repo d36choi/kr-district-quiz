@@ -1,0 +1,10 @@
+<svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc" style="color:#A9433D">
+  <title id="title">한강의 틈</title>
+  <desc id="desc">서울 외곽선 사이로 한강이 흐르는 로고</desc>
+  <defs>
+    <path id="seoul" d="M8 44 18 36 27 32 34 28 39 15 48 10 55 22 64 18 71 28 83 30 90 40 87 47 96 53 89 63 84 73 73 76 66 88 55 84 44 91 34 81 22 80 17 69 8 64 13 54Z"/>
+    <clipPath id="clip"><use href="#seoul"/></clipPath>
+  </defs>
+  <use href="#seoul" fill="currentColor"/>
+  <path d="M5 55C19 50 30 59 42 55S62 45 74 50s17 10 25 5" fill="none" stroke="var(--river, #3D7C8A)" stroke-width="7" stroke-linecap="round" clip-path="url(#clip)"/>
+</svg>
