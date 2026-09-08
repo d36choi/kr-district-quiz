@@ -13,7 +13,7 @@ export type RegionProgress = {
   lastAnsweredAt: string | null
   nextReviewAt: string | null
   lastQuestionType: string | null
-  lastPromotionSessionId?: string
+  lastPromotionSessionId?: string | null
 }
 
 export type ReviewDate = Date | string
@@ -107,11 +107,19 @@ export function applyScoredAnswer(
     ? Math.min(currentStage + 1, 4) as ProgressStage
     : Math.max(currentStage - 1, 0) as ProgressStage
 
+  let establishedBaseline = false
+
   // Stage 3 and above require a new learning session for every promotion.
-  // Legacy three-argument calls have no session identity and retain the
-  // original deterministic stage progression behavior.
-  if (correct && sessionId && nextStage >= 3 && progress.lastPromotionSessionId === sessionId) {
-    nextStage = currentStage
+  // A sessionless call can still advance unseen material through stage 2, but
+  // cannot make an unverified high-stage promotion. Legacy high-stage records
+  // establish their first identified session as a baseline before promoting.
+  if (correct && nextStage >= 3) {
+    if (!sessionId) {
+      nextStage = currentStage
+    } else if (!progress.lastPromotionSessionId || progress.lastPromotionSessionId === sessionId) {
+      nextStage = currentStage
+      establishedBaseline = !progress.lastPromotionSessionId
+    }
   }
 
   const result: RegionProgress = {
@@ -123,7 +131,7 @@ export function applyScoredAnswer(
     nextReviewAt: getNextReviewAt(nextStage, answeredAt),
   }
 
-  if (correct && sessionId && nextStage > currentStage) {
+  if (correct && sessionId && (nextStage > currentStage || establishedBaseline)) {
     result.lastPromotionSessionId = sessionId
   }
 

@@ -42,3 +42,28 @@ npm run build                                 # passed; Vite and AIT bundle buil
 ## Concerns
 
 - A JavaScript `Date` does not retain its source timezone. Date objects default to the app's KST calendar context; explicit date strings with an offset preserve that offset when adding calendar days.
+
+## Fix round 1: session-boundary regression
+
+### RED
+
+Added regression tests for sessionless promotion caps, same-session stage 3→4 blocking, and legacy stage 2/3 records without session metadata.
+
+```text
+npm test -- --run src/game/progress.test.ts
+```
+
+Result: failed 3 tests as expected. The existing implementation promoted sessionless 2→3 and promoted the first identified answer on legacy stage 2/3.
+
+### GREEN
+
+Sessionless correct answers now stop at stage 2 when a promotion would enter stage 3+. Identified sessions are recorded at stages 1/2, and a legacy stage 2/3 record first establishes a baseline session without high-stage promotion. Same-session high-stage attempts remain scored and rescheduled at the retained stage.
+
+```text
+npm test -- --run src/game/progress.test.ts   # 1 file, 9 tests passed
+npm run lint                                  # passed
+npm test                                      # 6 files, 49 tests passed
+npm run build                                 # passed; Vite and AIT bundle built
+```
+
+The input progress object remains immutable. The fix is committed separately as `64f04ba`.
