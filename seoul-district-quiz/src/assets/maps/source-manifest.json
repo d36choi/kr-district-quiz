@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "id": "sgis-2025-q2-sigungu",
+    "portalUrl": "https://www.data.go.kr/data/15129688/fileData.do",
+    "attachmentUrl": "https://www.data.go.kr/cmm/cmm/fileDownload.do?atchFileId=FILE_000000003681593&fileDetailSn=1&dataNm=SGIS-boundaries-2025",
+    "attachmentId": "FILE_000000003681593",
+    "fileDetailSn": "1",
+    "retrievalDate": "2026-09-08",
+    "baseDate": "2025-06-30",
+    "archiveSha256": "f1cf0f9de453ac7eaacb273f39cee52851183372b9ddfda428a967c3a670b2c6",
+    "archiveBytes": 269032521,
+    "internalShapefilePath": "국가데이터처_SGIS 행정구역 통계 및 경계/2. 경계/2. 2025년 2분기 기준 시군구 경계/bnd_sigungu_00_2025_2Q.shp",
+    "crs": "EPSG:5179 (Korea 2000 / Unified CS)",
+    "schema": [
+      "BASE_DATE",
+      "SIGUNGU_CD",
+      "SIGUNGU_NM"
+    ],
+    "licence": "공공데이터포털 이용허락범위 제한 없음",
+    "mapshaperVersion": "0.7.59",
+    "shapefileComponents": {
+      "cpgSha256": "3ad3031f5503a4404af825262ee8232cc04d4ea6683d42c5dd0a2f2a27ac9824",
+      "dbfSha256": "18f7d3a5f0fd8cf12e4a5deca3faf52133db4f7221dfbeccedf94ec06b58ece6",
+      "prjSha256": "e21b26451491c617318aab7d28abf4d07f5facc2aed1564e082ec8d4268cfa3b",
+      "shpSha256": "85523b10411652aa6b5c286a82eff7e77c7e563d5f644eb62a221a121f7e3968",
+      "shxSha256": "9fbaeb394ffde8be2fce4e47f2420ac63942fbbdf6c15cf2c71ac69136b9428c"
+    }
+  },
+  "processing": {
+    "command": "mapshaper -proj wgs84 -dissolve regionId -simplify weighted 3% keep-shapes",
+    "mapshaperVersion": "0.7.59",
+    "viewBox": "0 0 1000 1000"
+  },
+  "assets": {
+    "gyeonggi-municipalities.svg": {
+      "sha256": "788f14cc9468eeeabe25c87beb012a81ef105810cb4ed97aa9d6874b066d4d05",
+      "pathCount": 31
+    },
+    "gyeonggi-districts.svg": {
+      "sha256": "f2f59daebd0ab7a38d047db4789e872f1048f08df5d5b02ae2c9ec486cd19ca8",
+      "pathCount": 10
+    }
+  }
+}
