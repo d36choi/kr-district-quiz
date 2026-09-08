@@ -66,4 +66,4 @@ npm test                                      # 6 files, 49 tests passed
 npm run build                                 # passed; Vite and AIT bundle built
 ```
 
-The input progress object remains immutable. The fix is committed separately as `64f04ba`.
+The input progress object remains immutable. The fix is committed in git history as `fix: enforce spaced review session boundaries`.
