@@ -116,6 +116,34 @@ describe('personal records V2', () => {
     })
   })
 
+  it('normalizes malformed nullable progress metadata without dropping core progress', () => {
+    const parsed = parsePersonalRecords(JSON.stringify({
+      ...createEmptyPersonalRecords(),
+      progressByRegion: {
+        'seoul:mapo': {
+          regionId: 'seoul:mapo',
+          stage: 2,
+          attempts: 4,
+          correctAnswers: 3,
+          lastAnsweredAt: 'not-a-date',
+          nextReviewAt: 17,
+          lastQuestionType: { unexpected: true },
+          lastPromotionSessionId: false,
+        },
+      },
+    }))
+
+    expect(parsed.progressByRegion['seoul:mapo']).toEqual({
+      regionId: 'seoul:mapo',
+      stage: 2,
+      attempts: 4,
+      correctAnswers: 3,
+      lastAnsweredAt: null,
+      nextReviewAt: null,
+      lastQuestionType: null,
+    })
+  })
+
   it('records region progress and requires another course before stage 3', () => {
     const empty = createEmptyPersonalRecords()
     const first = recordRegionAnswer(empty, {
@@ -291,14 +319,27 @@ describe('legacy App compatibility', () => {
     expect(fastest.fastestPerfectSetMs.choice).toBe(30_000)
   })
 
-  it('does not change legacy streak projections during review', () => {
+  it('keeps authoritative V2 combo fields when compatibility projections are stale', () => {
     const records = {
       ...createEmptyPersonalRecords(),
-      currentCorrectStreak: 3,
-      bestCorrectStreak: 5,
+      currentCombo: 2,
+      bestCombo: 4,
+      currentCorrectStreak: 30,
+      bestCorrectStreak: 50,
     }
 
-    expect(recordAnswer(records, { correct: false, sessionKind: 'review' })).toBe(records)
+    const reviewed = recordAnswer(records, { correct: false, sessionKind: 'review' })
+    expect(reviewed.currentCombo).toBe(2)
+    expect(reviewed.bestCombo).toBe(4)
+    expect(reviewed.currentCorrectStreak).toBe(2)
+    expect(reviewed.bestCorrectStreak).toBe(4)
+
+    const ignoredSet = recordCompletedSet(records, {
+      mode: 'choice', sessionKind: 'regular', correctCount: 4,
+      totalQuestions: 5, totalDurationMs: 30_000,
+    })
+    expect(ignoredSet.currentCorrectStreak).toBe(2)
+    expect(ignoredSet.bestCorrectStreak).toBe(4)
 
     const mastered = recordAnswer(records, {
       correct: true,
@@ -306,8 +347,8 @@ describe('legacy App compatibility', () => {
       district: '종로구',
     })
     expect(mastered.masteredDistricts).toEqual(['종로구'])
-    expect(mastered.currentCorrectStreak).toBe(3)
-    expect(mastered.bestCorrectStreak).toBe(5)
+    expect(mastered.currentCorrectStreak).toBe(2)
+    expect(mastered.bestCorrectStreak).toBe(4)
   })
 
   it('keeps the fastest eligible perfect set by mode', () => {

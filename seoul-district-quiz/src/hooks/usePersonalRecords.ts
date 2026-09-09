@@ -4,6 +4,7 @@ import {
   loadPersonalRecords,
   PersonalRecordsMigrationError,
   savePersonalRecords,
+  type PersonalRecordsV1,
   type PersonalRecordsV2,
 } from '../game/personalRecords'
 
@@ -16,29 +17,48 @@ export function usePersonalRecords() {
   const recordsRef = useRef(records)
   const loadPromiseRef = useRef<Promise<PersonalRecordsV2> | null>(null)
   const writeQueueRef = useRef(Promise.resolve())
+  const revisionRef = useRef(0)
+  const loadGenerationRef = useRef(0)
+  const lastLoadCommitRevisionRef = useRef(0)
 
   const performLoad = useCallback(() => {
-    const loadPromise = loadPersonalRecords()
-      .then((nextRecords) => {
+    const startedAtRevision = revisionRef.current
+    const loadGeneration = loadGenerationRef.current + 1
+    loadGenerationRef.current = loadGeneration
+
+    const commitLoadedRecords = (nextRecords: PersonalRecordsV2) => {
+      if (loadGeneration !== loadGenerationRef.current) return recordsRef.current
+      if (
+        startedAtRevision === revisionRef.current
+        && startedAtRevision === lastLoadCommitRevisionRef.current
+      ) {
         recordsRef.current = nextRecords
         setRecords(nextRecords)
-        setLoadStatus('ready')
-        return nextRecords
+        lastLoadCommitRevisionRef.current = revisionRef.current
+      }
+      return recordsRef.current
+    }
+
+    const loadPromise = loadPersonalRecords()
+      .then((nextRecords) => {
+        const currentRecords = commitLoadedRecords(nextRecords)
+        if (loadGeneration === loadGenerationRef.current) setLoadStatus('ready')
+        return currentRecords
       })
       .catch((error: unknown) => {
         if (error instanceof PersonalRecordsMigrationError) {
-          recordsRef.current = error.migratedRecords
-          setRecords(error.migratedRecords)
-          setLoadStatus('ready')
-          setSaveFailed(true)
-          return error.migratedRecords
+          const currentRecords = commitLoadedRecords(error.migratedRecords)
+          if (loadGeneration === loadGenerationRef.current) {
+            setLoadStatus('ready')
+            setSaveFailed(true)
+          }
+          return currentRecords
         }
 
         const emptyRecords = createEmptyPersonalRecords()
-        recordsRef.current = emptyRecords
-        setRecords(emptyRecords)
-        setLoadStatus('error')
-        return emptyRecords
+        const currentRecords = commitLoadedRecords(emptyRecords)
+        if (loadGeneration === loadGenerationRef.current) setLoadStatus('error')
+        return currentRecords
       })
     loadPromiseRef.current = loadPromise
     return loadPromise
@@ -54,17 +74,21 @@ export function usePersonalRecords() {
   }, [performLoad])
 
   const updateRecords = useCallback((updater: (current: PersonalRecordsV2) => PersonalRecordsV2) => {
-    writeQueueRef.current = writeQueueRef.current.then(async () => {
-      await (loadPromiseRef.current ?? Promise.resolve(recordsRef.current))
-      const currentRecords = recordsRef.current
-      const nextRecords = updater(currentRecords)
-      if (nextRecords === currentRecords) return
+    const currentRecords = recordsRef.current
+    const nextRecords = updater(currentRecords)
+    if (nextRecords === currentRecords) return
 
-      recordsRef.current = nextRecords
-      setRecords(nextRecords)
+    recordsRef.current = nextRecords
+    revisionRef.current += 1
+    setRecords(nextRecords)
+
+    const pendingLoad = loadPromiseRef.current
+    const snapshot = nextRecords
+    writeQueueRef.current = writeQueueRef.current.then(async () => {
+      await pendingLoad
 
       try {
-        await savePersonalRecords(nextRecords)
+        await savePersonalRecords(snapshot)
         setSaveFailed(false)
       } catch {
         setSaveFailed(true)
@@ -72,8 +96,19 @@ export function usePersonalRecords() {
     })
   }, [])
 
+  const legacyRecords: PersonalRecordsV1 = {
+    version: 1,
+    fastestPerfectSetMs: records.fastestPerfectSetMs,
+    currentCorrectStreak: records.currentCorrectStreak,
+    bestCorrectStreak: records.bestCorrectStreak,
+    masteredDistricts: records.masteredDistricts,
+  }
+
   return {
-    records,
+    // Temporary V1-shaped projection for the legacy App screens. Regional
+    // consumers use recordsV2 until Task 7 removes this compatibility alias.
+    records: legacyRecords,
+    recordsV2: records,
     loadStatus,
     saveFailed,
     retryLoad,

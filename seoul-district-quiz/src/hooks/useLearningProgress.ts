@@ -22,8 +22,9 @@ export function useLearningProgress() {
 
   return {
     ...personalRecords,
-    progressByRegion: personalRecords.records.progressByRegion,
-    dailyStreak: getDailyStreak(personalRecords.records),
+    records: personalRecords.recordsV2,
+    progressByRegion: personalRecords.recordsV2.progressByRegion,
+    dailyStreak: getDailyStreak(personalRecords.recordsV2),
     recordRegionAnswer: recordAnswer,
     recordCourseCompleted: completeCourse,
   }

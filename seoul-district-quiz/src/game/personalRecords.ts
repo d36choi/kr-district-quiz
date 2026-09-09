@@ -12,13 +12,15 @@ import {
 export type AnswerMode = 'choice' | 'text'
 export type SessionKind = 'regular' | 'review'
 
-/** @deprecated Kept until the legacy Seoul screens move to the V2 fields. */
-export type PersonalRecordsV1 = {
-  version: 1 | 2
+type LegacyPersonalRecordFields = {
   fastestPerfectSetMs: Record<AnswerMode, number | null>
   currentCorrectStreak: number
   bestCorrectStreak: number
   masteredDistricts: string[]
+}
+
+export type PersonalRecordsV1 = LegacyPersonalRecordFields & {
+  version: 1
 }
 
 export type DailyStreak = {
@@ -28,7 +30,7 @@ export type DailyStreak = {
   lastCompletedDate: string | null
 }
 
-export type PersonalRecordsV2 = PersonalRecordsV1 & {
+export type PersonalRecordsV2 = LegacyPersonalRecordFields & {
   version: 2
   progressByRegion: Record<string, RegionProgress>
   dailyStreak: DailyStreak
@@ -74,9 +76,9 @@ function isValidCalendarDate(value: unknown): value is string {
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
 }
 
-function parseNullableTimestamp(value: unknown): string | null | undefined {
+function parseNullableTimestamp(value: unknown): string | null {
   if (value === null) return null
-  if (typeof value !== 'string' || Number.isNaN(new Date(value).getTime())) return undefined
+  if (typeof value !== 'string' || Number.isNaN(new Date(value).getTime())) return null
   return value
 }
 
@@ -94,20 +96,12 @@ function parseRegionProgress(key: string, value: unknown): RegionProgress | unde
   const correctAnswers = parseCount(value.correctAnswers)
   const lastAnsweredAt = parseNullableTimestamp(value.lastAnsweredAt)
   const nextReviewAt = parseNullableTimestamp(value.nextReviewAt)
-  const lastQuestionType = value.lastQuestionType
-  const validQuestionType = lastQuestionType === null || typeof lastQuestionType === 'string'
+  const lastQuestionType = typeof value.lastQuestionType === 'string' ? value.lastQuestionType : null
   const promotionSession = value.lastPromotionSessionId
-  const validPromotionSession = promotionSession === undefined
-    || promotionSession === null
-    || typeof promotionSession === 'string'
 
   if (
     stage === undefined
     || correctAnswers > attempts
-    || lastAnsweredAt === undefined
-    || nextReviewAt === undefined
-    || !validQuestionType
-    || !validPromotionSession
   ) return undefined
 
   const progress: RegionProgress = {
@@ -119,7 +113,9 @@ function parseRegionProgress(key: string, value: unknown): RegionProgress | unde
     nextReviewAt,
     lastQuestionType,
   }
-  if (promotionSession !== undefined) progress.lastPromotionSessionId = promotionSession
+  if (promotionSession === null || typeof promotionSession === 'string') {
+    progress.lastPromotionSessionId = promotionSession
+  }
   return progress
 }
 
@@ -318,14 +314,18 @@ export function getDailyStreak(
 }
 
 function asV2(records: PersonalRecordsV1 | PersonalRecordsV2): PersonalRecordsV2 {
-  if (records.version !== 2) return migratePersonalRecordsV1(records)
+  return records.version === 2 ? records : migratePersonalRecordsV1(records)
+}
 
-  const v2 = records as PersonalRecordsV2
-  const currentCombo = parseCount(v2.currentCorrectStreak)
-  const bestCombo = Math.max(currentCombo, parseCount(v2.bestCorrectStreak))
-  if (currentCombo === v2.currentCombo && bestCombo === v2.bestCombo) return v2
-
-  return projectLegacyFields({ ...v2, currentCombo, bestCombo })
+function syncLegacyFields(records: PersonalRecordsV2): PersonalRecordsV2 {
+  const projected = projectLegacyFields(records)
+  const sameMasteredDistricts = projected.masteredDistricts.length === records.masteredDistricts.length
+    && projected.masteredDistricts.every((district, index) => district === records.masteredDistricts[index])
+  return projected.currentCorrectStreak === records.currentCorrectStreak
+    && projected.bestCorrectStreak === records.bestCorrectStreak
+    && sameMasteredDistricts
+    ? records
+    : projected
 }
 
 /** @deprecated Use recordRegionAnswer for regional courses. */
@@ -333,11 +333,11 @@ export function recordAnswer(
   records: PersonalRecordsV1 | PersonalRecordsV2,
   result: { correct: boolean; sessionKind: SessionKind; district?: string },
 ): PersonalRecordsV2 {
+  const v2 = syncLegacyFields(asV2(records))
   if (result.sessionKind === 'review' && (!result.correct || !result.district)) {
-    return records.version === 2 ? records as PersonalRecordsV2 : migratePersonalRecordsV1(records)
+    return v2
   }
 
-  const v2 = asV2(records)
   const recordsWithMastery = result.correct && result.district
     ? recordMasteredDistrict(v2, result.district)
     : v2
@@ -357,7 +357,7 @@ export function recordMasteredDistrict(
   records: PersonalRecordsV1 | PersonalRecordsV2,
   district: string,
 ): PersonalRecordsV2 {
-  const v2 = asV2(records)
+  const v2 = syncLegacyFields(asV2(records))
   const region = SEOUL_DISTRICT_BY_ALIAS.get(district)
   if (!region || v2.progressByRegion[region.id]?.stage > 0) return v2
 
@@ -386,7 +386,7 @@ export function recordCompletedSet(
     totalDurationMs: number
   },
 ): PersonalRecordsV2 {
-  const v2 = asV2(records)
+  const v2 = syncLegacyFields(asV2(records))
   const isPerfectRegularSet = result.sessionKind === 'regular'
     && result.totalQuestions === 5
     && result.correctCount === 5
