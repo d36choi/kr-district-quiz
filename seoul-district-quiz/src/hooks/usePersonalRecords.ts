@@ -2,8 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   createEmptyPersonalRecords,
   loadPersonalRecords,
+  PersonalRecordsMigrationError,
   savePersonalRecords,
-  type PersonalRecordsV1,
+  type PersonalRecordsV2,
 } from '../game/personalRecords'
 
 type LoadStatus = 'loading' | 'ready' | 'error'
@@ -13,7 +14,7 @@ export function usePersonalRecords() {
   const [loadStatus, setLoadStatus] = useState<LoadStatus>('loading')
   const [saveFailed, setSaveFailed] = useState(false)
   const recordsRef = useRef(records)
-  const loadPromiseRef = useRef<Promise<PersonalRecordsV1> | null>(null)
+  const loadPromiseRef = useRef<Promise<PersonalRecordsV2> | null>(null)
   const writeQueueRef = useRef(Promise.resolve())
 
   const performLoad = useCallback(() => {
@@ -24,7 +25,15 @@ export function usePersonalRecords() {
         setLoadStatus('ready')
         return nextRecords
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        if (error instanceof PersonalRecordsMigrationError) {
+          recordsRef.current = error.migratedRecords
+          setRecords(error.migratedRecords)
+          setLoadStatus('ready')
+          setSaveFailed(true)
+          return error.migratedRecords
+        }
+
         const emptyRecords = createEmptyPersonalRecords()
         recordsRef.current = emptyRecords
         setRecords(emptyRecords)
@@ -44,7 +53,7 @@ export function usePersonalRecords() {
     return performLoad()
   }, [performLoad])
 
-  const updateRecords = useCallback((updater: (current: PersonalRecordsV1) => PersonalRecordsV1) => {
+  const updateRecords = useCallback((updater: (current: PersonalRecordsV2) => PersonalRecordsV2) => {
     writeQueueRef.current = writeQueueRef.current.then(async () => {
       await (loadPromiseRef.current ?? Promise.resolve(recordsRef.current))
       const currentRecords = recordsRef.current
