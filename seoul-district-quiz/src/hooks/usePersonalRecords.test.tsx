@@ -161,23 +161,62 @@ describe('usePersonalRecords write coordination', () => {
     })
   })
 
-  it('persists optimistic progress after an initial load failure without claiming load success', async () => {
+  it.each(['before', 'after'] as const)('retains updates made %s a failed read until retry merges the existing V2 base', async (updateTiming) => {
     const initialRead = deferred<string | null>()
-    const values = new Map<string, string>()
-    storage.getItem.mockImplementationOnce(() => initialRead.promise)
+    const retryRead = deferred<void>()
+    const existing = JSON.stringify(answer('seoul:jongno', '2026-09-08T12:00:00+09:00')(
+      createEmptyPersonalRecords(),
+    ))
+    const values = new Map([[PERSONAL_RECORDS_STORAGE_KEY, existing]])
+    storage.getItem
+      .mockImplementationOnce(() => initialRead.promise)
+      .mockImplementation(async (key: string) => {
+        await retryRead.promise
+        return values.get(key) ?? null
+      })
     storage.setItem.mockImplementation(async (key: string, value: string) => { values.set(key, value) })
     const { result } = renderHook(() => usePersonalRecords())
 
-    act(() => result.current.updateRecords(answer('seoul:mapo', '2026-09-09T12:00:00+09:00')))
+    if (updateTiming === 'before') {
+      act(() => result.current.updateRecords(answer('seoul:mapo', '2026-09-09T12:00:00+09:00')))
+    }
     initialRead.reject(new Error('load unavailable'))
-
     await waitFor(() => expect(result.current.loadStatus).toBe('error'))
+    if (updateTiming === 'after') {
+      act(() => result.current.updateRecords(answer('seoul:mapo', '2026-09-09T12:00:00+09:00')))
+    }
+    await act(async () => {})
+    expect(result.current.recordsV2.progressByRegion['seoul:mapo']?.attempts).toBe(1)
+    expect(result.current.loadStatus).toBe('error')
+    expect(storage.setItem).not.toHaveBeenCalled()
+    expect(values.get(PERSONAL_RECORDS_STORAGE_KEY)).toBe(existing)
+
+    let retryPromise!: Promise<ReturnType<typeof createEmptyPersonalRecords>>
+    act(() => { retryPromise = result.current.retryLoad() })
+    await waitFor(() => expect(storage.getItem).toHaveBeenCalledTimes(2))
+    expect(result.current.loadStatus).toBe('error')
+    expect(storage.setItem).not.toHaveBeenCalled()
+    retryRead.resolve()
+    await act(async () => { await retryPromise })
+
     await waitFor(() => {
       const persisted = JSON.parse(values.get(PERSONAL_RECORDS_STORAGE_KEY) ?? '{}')
-      expect(persisted.progressByRegion['seoul:mapo']).toBeDefined()
+      expect(persisted.version).toBe(2)
+      expect(persisted.progressByRegion['seoul:jongno']?.attempts).toBe(1)
+      expect(persisted.progressByRegion['seoul:mapo']?.attempts).toBe(1)
+      expect(persisted.currentCombo).toBe(2)
     })
-    expect(result.current.recordsV2.progressByRegion['seoul:mapo']).toBeDefined()
-    expect(result.current.loadStatus).toBe('error')
+    expect(result.current.recordsV2.progressByRegion['seoul:jongno']?.attempts).toBe(1)
+    expect(result.current.recordsV2.progressByRegion['seoul:mapo']?.attempts).toBe(1)
+    expect(result.current.recordsV2.currentCombo).toBe(2)
+    expect(result.current.loadStatus).toBe('ready')
+    expect(result.current.saveFailed).toBe(false)
+    expect(storage.setItem).toHaveBeenCalledTimes(1)
+
+    await act(async () => { await result.current.retryLoad() })
+    expect(result.current.recordsV2.progressByRegion['seoul:mapo']?.attempts).toBe(1)
+    expect(result.current.recordsV2.currentCombo).toBe(2)
+    expect(storage.setItem).toHaveBeenCalledTimes(1)
   })
 
   it('replays an optimistic update over unresolved V1 migration and preserves the source', async () => {
