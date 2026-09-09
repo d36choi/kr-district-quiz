@@ -9,60 +9,89 @@ import {
 } from '../game/personalRecords'
 
 type LoadStatus = 'loading' | 'ready' | 'error'
+type PendingMutation = {
+  revision: number
+  updater: (current: PersonalRecordsV2) => PersonalRecordsV2
+}
 
 export function usePersonalRecords() {
   const [records, setRecords] = useState(createEmptyPersonalRecords)
   const [loadStatus, setLoadStatus] = useState<LoadStatus>('loading')
   const [saveFailed, setSaveFailed] = useState(false)
   const recordsRef = useRef(records)
-  const loadPromiseRef = useRef<Promise<PersonalRecordsV2> | null>(null)
   const writeQueueRef = useRef(Promise.resolve())
   const revisionRef = useRef(0)
+  const persistedRevisionRef = useRef(0)
+  const pendingMutationsRef = useRef<PendingMutation[]>([])
   const loadGenerationRef = useRef(0)
-  const lastLoadCommitRevisionRef = useRef(0)
+
+  const enqueueSnapshot = useCallback((snapshot: PersonalRecordsV2, revision: number) => {
+    writeQueueRef.current = writeQueueRef.current.then(async () => {
+      try {
+        await savePersonalRecords(snapshot)
+        persistedRevisionRef.current = Math.max(persistedRevisionRef.current, revision)
+        pendingMutationsRef.current = pendingMutationsRef.current
+          .filter((mutation) => mutation.revision > persistedRevisionRef.current)
+        setSaveFailed(false)
+      } catch {
+        setSaveFailed(true)
+      }
+    })
+  }, [])
 
   const performLoad = useCallback(() => {
-    const startedAtRevision = revisionRef.current
     const loadGeneration = loadGenerationRef.current + 1
     loadGenerationRef.current = loadGeneration
+    let persistedRevisionAtRead = persistedRevisionRef.current
 
-    const commitLoadedRecords = (nextRecords: PersonalRecordsV2) => {
+    const mergeAndCommitLoadedRecords = (
+      loadedRecords: PersonalRecordsV2,
+      enqueueReconciliation = true,
+    ) => {
       if (loadGeneration !== loadGenerationRef.current) return recordsRef.current
-      if (
-        startedAtRevision === revisionRef.current
-        && startedAtRevision === lastLoadCommitRevisionRef.current
-      ) {
-        recordsRef.current = nextRecords
-        setRecords(nextRecords)
-        lastLoadCommitRevisionRef.current = revisionRef.current
+
+      const pendingMutations = pendingMutationsRef.current
+        .filter((mutation) => mutation.revision > persistedRevisionAtRead)
+      const nextRecords = pendingMutations.reduce(
+        (current, mutation) => mutation.updater(current),
+        loadedRecords,
+      )
+      recordsRef.current = nextRecords
+      setRecords(nextRecords)
+
+      if (enqueueReconciliation && pendingMutations.length > 0) {
+        enqueueSnapshot(nextRecords, revisionRef.current)
       }
-      return recordsRef.current
+      return nextRecords
     }
 
-    const loadPromise = loadPersonalRecords()
+    const loadPromise = writeQueueRef.current
+      .then(() => {
+        persistedRevisionAtRead = persistedRevisionRef.current
+        return loadPersonalRecords()
+      })
       .then((nextRecords) => {
-        const currentRecords = commitLoadedRecords(nextRecords)
+        const currentRecords = mergeAndCommitLoadedRecords(nextRecords)
         if (loadGeneration === loadGenerationRef.current) setLoadStatus('ready')
         return currentRecords
       })
       .catch((error: unknown) => {
         if (error instanceof PersonalRecordsMigrationError) {
-          const currentRecords = commitLoadedRecords(error.migratedRecords)
+          const currentRecords = mergeAndCommitLoadedRecords(error.migratedRecords, false)
           if (loadGeneration === loadGenerationRef.current) {
             setLoadStatus('ready')
             setSaveFailed(true)
+            enqueueSnapshot(currentRecords, revisionRef.current)
           }
           return currentRecords
         }
 
-        const emptyRecords = createEmptyPersonalRecords()
-        const currentRecords = commitLoadedRecords(emptyRecords)
         if (loadGeneration === loadGenerationRef.current) setLoadStatus('error')
-        return currentRecords
+        return recordsRef.current
       })
-    loadPromiseRef.current = loadPromise
+    writeQueueRef.current = loadPromise.then(() => undefined, () => undefined)
     return loadPromise
-  }, [])
+  }, [enqueueSnapshot])
 
   useEffect(() => {
     void performLoad()
@@ -80,21 +109,11 @@ export function usePersonalRecords() {
 
     recordsRef.current = nextRecords
     revisionRef.current += 1
+    const revision = revisionRef.current
+    pendingMutationsRef.current.push({ revision, updater })
     setRecords(nextRecords)
-
-    const pendingLoad = loadPromiseRef.current
-    const snapshot = nextRecords
-    writeQueueRef.current = writeQueueRef.current.then(async () => {
-      await pendingLoad
-
-      try {
-        await savePersonalRecords(snapshot)
-        setSaveFailed(false)
-      } catch {
-        setSaveFailed(true)
-      }
-    })
-  }, [])
+    enqueueSnapshot(nextRecords, revision)
+  }, [enqueueSnapshot])
 
   const legacyRecords: PersonalRecordsV1 = {
     version: 1,
