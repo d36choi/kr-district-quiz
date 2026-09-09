@@ -19,8 +19,12 @@ vi.mock('@apps-in-toss/web-framework', () => ({ Storage: storage }))
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
-  const promise = new Promise<T>((next) => { resolve = next })
-  return { promise, resolve }
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((next, fail) => {
+    resolve = next
+    reject = fail
+  })
+  return { promise, reject, resolve }
 }
 
 function answer(regionId: string, answeredAt: string) {
@@ -71,9 +75,15 @@ describe('usePersonalRecords write coordination', () => {
       .mockResolvedValueOnce(emptyJson)
       .mockImplementationOnce(() => retryRead.promise)
     const firstWrite = deferred<void>()
-    storage.setItem.mockImplementationOnce(async () => {
-      await firstWrite.promise
-      throw new Error('first save unavailable')
+    const saved: ReturnType<typeof createEmptyPersonalRecords>[] = []
+    let writeCount = 0
+    storage.setItem.mockImplementation(async (_key: string, value: string) => {
+      writeCount += 1
+      if (writeCount === 1) {
+        await firstWrite.promise
+        throw new Error('first save unavailable')
+      }
+      saved.push(JSON.parse(value))
     })
     const { result } = renderHook(() => usePersonalRecords())
     await waitFor(() => expect(result.current.loadStatus).toBe('ready'))
@@ -92,7 +102,9 @@ describe('usePersonalRecords write coordination', () => {
     await act(async () => { await retryPromise })
     expect(result.current.recordsV2.currentCombo).toBe(2)
 
-    await waitFor(() => expect(storage.setItem).toHaveBeenCalledTimes(3))
+    await waitFor(() => expect(storage.setItem).toHaveBeenCalledTimes(2))
+    expect(saved.at(-1)?.progressByRegion['seoul:mapo']).toBeDefined()
+    expect(saved.at(-1)?.progressByRegion['seoul:jongno']).toBeDefined()
   })
 
   it('rejects a retry snapshot that predates an already-pending local write', async () => {
@@ -147,6 +159,25 @@ describe('usePersonalRecords write coordination', () => {
       expect(saved.at(-1)?.progressByRegion['seoul:jongno']).toBeDefined()
       expect(saved.at(-1)?.progressByRegion['seoul:mapo']).toBeDefined()
     })
+  })
+
+  it('persists optimistic progress after an initial load failure without claiming load success', async () => {
+    const initialRead = deferred<string | null>()
+    const values = new Map<string, string>()
+    storage.getItem.mockImplementationOnce(() => initialRead.promise)
+    storage.setItem.mockImplementation(async (key: string, value: string) => { values.set(key, value) })
+    const { result } = renderHook(() => usePersonalRecords())
+
+    act(() => result.current.updateRecords(answer('seoul:mapo', '2026-09-09T12:00:00+09:00')))
+    initialRead.reject(new Error('load unavailable'))
+
+    await waitFor(() => expect(result.current.loadStatus).toBe('error'))
+    await waitFor(() => {
+      const persisted = JSON.parse(values.get(PERSONAL_RECORDS_STORAGE_KEY) ?? '{}')
+      expect(persisted.progressByRegion['seoul:mapo']).toBeDefined()
+    })
+    expect(result.current.recordsV2.progressByRegion['seoul:mapo']).toBeDefined()
+    expect(result.current.loadStatus).toBe('error')
   })
 
   it('replays an optimistic update over unresolved V1 migration and preserves the source', async () => {
@@ -219,6 +250,58 @@ describe('usePersonalRecords write coordination', () => {
       expect(persisted.progressByRegion['seoul:mapo']).toBeDefined()
       expect(persisted.progressByRegion['seoul:jongno']).toBeDefined()
     })
+    expect(values.get(LEGACY_PERSONAL_RECORDS_STORAGE_KEY)).toBe(legacy)
+  })
+
+  it('retains unresolved-load mutations until the merged migrated snapshot is durable', async () => {
+    const legacyRead = deferred<string | null>()
+    const legacy = JSON.stringify({
+      version: 1,
+      fastestPerfectSetMs: { choice: null, text: null },
+      currentCorrectStreak: 0,
+      bestCorrectStreak: 0,
+      masteredDistricts: ['마포구'],
+    })
+    const values = new Map([[LEGACY_PERSONAL_RECORDS_STORAGE_KEY, legacy]])
+    storage.getItem.mockImplementation(async (key: string) => {
+      if (key === PERSONAL_RECORDS_STORAGE_KEY) return values.get(key) ?? null
+      return legacyRead.promise
+    })
+    let mergedWriteAttempts = 0
+    let localOnlyWrites = 0
+    storage.setItem.mockImplementation(async (key: string, value: string) => {
+      const parsed = JSON.parse(value)
+      const includesMigrated = parsed.progressByRegion['seoul:mapo'] !== undefined
+      const includesLocal = parsed.progressByRegion['seoul:jongno'] !== undefined
+
+      if (includesMigrated && includesLocal) {
+        mergedWriteAttempts += 1
+        if (mergedWriteAttempts === 1) throw new Error('merged save unavailable')
+      }
+      if (!includesMigrated && includesLocal) localOnlyWrites += 1
+      values.set(key, value)
+    })
+    const { result } = renderHook(() => usePersonalRecords())
+    await waitFor(() => expect(storage.getItem).toHaveBeenCalledWith(LEGACY_PERSONAL_RECORDS_STORAGE_KEY))
+
+    act(() => result.current.updateRecords(answer('seoul:jongno', '2026-09-09T12:00:00+09:00')))
+    legacyRead.resolve(legacy)
+
+    await waitFor(() => expect(result.current.saveFailed).toBe(true))
+    expect(result.current.recordsV2.progressByRegion['seoul:mapo']).toBeDefined()
+    expect(result.current.recordsV2.progressByRegion['seoul:jongno']?.attempts).toBe(1)
+
+    await act(async () => { await result.current.retryLoad() })
+
+    await waitFor(() => {
+      const persisted = JSON.parse(values.get(PERSONAL_RECORDS_STORAGE_KEY) ?? '{}')
+      expect(persisted.progressByRegion['seoul:mapo']).toBeDefined()
+      expect(persisted.progressByRegion['seoul:jongno']?.attempts).toBe(1)
+    })
+    expect(result.current.recordsV2.progressByRegion['seoul:mapo']).toBeDefined()
+    expect(result.current.recordsV2.progressByRegion['seoul:jongno']?.attempts).toBe(1)
+    expect(mergedWriteAttempts).toBe(2)
+    expect(localOnlyWrites).toBe(0)
     expect(values.get(LEGACY_PERSONAL_RECORDS_STORAGE_KEY)).toBe(legacy)
   })
 })

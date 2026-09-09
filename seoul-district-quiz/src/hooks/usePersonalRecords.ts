@@ -24,6 +24,8 @@ export function usePersonalRecords() {
   const persistedRevisionRef = useRef(0)
   const pendingMutationsRef = useRef<PendingMutation[]>([])
   const loadGenerationRef = useRef(0)
+  // Includes queued retries so updates cannot save ahead of their base snapshot.
+  const pendingLoadsRef = useRef(0)
 
   const enqueueSnapshot = useCallback((snapshot: PersonalRecordsV2, revision: number) => {
     writeQueueRef.current = writeQueueRef.current.then(async () => {
@@ -42,6 +44,7 @@ export function usePersonalRecords() {
   const performLoad = useCallback(() => {
     const loadGeneration = loadGenerationRef.current + 1
     loadGenerationRef.current = loadGeneration
+    pendingLoadsRef.current += 1
     let persistedRevisionAtRead = persistedRevisionRef.current
 
     const mergeAndCommitLoadedRecords = (
@@ -86,11 +89,20 @@ export function usePersonalRecords() {
           return currentRecords
         }
 
-        if (loadGeneration === loadGenerationRef.current) setLoadStatus('error')
+        if (loadGeneration === loadGenerationRef.current) {
+          setLoadStatus('error')
+          const hasUnsavedProgress = pendingMutationsRef.current
+            .some((mutation) => mutation.revision > persistedRevisionAtRead)
+          if (hasUnsavedProgress) {
+            enqueueSnapshot(recordsRef.current, revisionRef.current)
+          }
+        }
         return recordsRef.current
       })
     writeQueueRef.current = loadPromise.then(() => undefined, () => undefined)
-    return loadPromise
+    return loadPromise.finally(() => {
+      pendingLoadsRef.current -= 1
+    })
   }, [enqueueSnapshot])
 
   useEffect(() => {
@@ -112,7 +124,9 @@ export function usePersonalRecords() {
     const revision = revisionRef.current
     pendingMutationsRef.current.push({ revision, updater })
     setRecords(nextRecords)
-    enqueueSnapshot(nextRecords, revision)
+    // The load settlement path persists one reconciled snapshot (or the latest
+    // in-memory snapshot after a read failure) and only then prunes revisions.
+    if (pendingLoadsRef.current === 0) enqueueSnapshot(nextRecords, revision)
   }, [enqueueSnapshot])
 
   const legacyRecords: PersonalRecordsV1 = {
