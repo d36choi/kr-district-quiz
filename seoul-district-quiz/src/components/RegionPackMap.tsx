@@ -108,18 +108,21 @@ export function RegionPackMap(props: RegionPackMapProps) {
   return <ScopedRegionMap key={`${props.packId}:${parentRegionId ?? 'overview'}`} {...props} parentRegionId={parentRegionId} />
 }
 
-function ScopedRegionMap({
-  packId, parentRegionId, activeRegionId, selectedRegionId: controlledSelection,
-  solvedRegionIds = EMPTY_IDS, adjacentRegionIds = EMPTY_IDS, result,
-  interactive = true, onRegionSelect, onReady, variant = 'quiz', showRegionList = true, caption: customCaption,
-}: RegionPackMapProps & { parentRegionId?: string }) {
+function ScopedRegionMap(props: RegionPackMapProps & { parentRegionId?: string }) {
+  const {
+    packId, parentRegionId, activeRegionId, selectedRegionId: controlledSelection,
+    solvedRegionIds = EMPTY_IDS, adjacentRegionIds = EMPTY_IDS, result,
+    interactive = true, onRegionSelect, onReady, variant = 'quiz', showRegionList = true, caption: customCaption,
+  } = props
   const captionId = useId()
   const [internalSelection, setInternalSelection] = useState<string>()
   const [loadState, setLoadState] = useState<{ status: 'loading' | 'error'; data?: never } | { status: 'ready'; data: MapData }>({ status: 'loading' })
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [listOpen, setListOpen] = useState(false)
   const pathNodes = useRef(new Map<string, SVGPathElement>())
-  const selectedRegionId = controlledSelection ?? internalSelection
+  // An explicitly undefined controlled value means the parent cleared selection.
+  const isSelectionControlled = Object.prototype.hasOwnProperty.call(props, 'selectedRegionId')
+  const selectedRegionId = isSelectionControlled ? controlledSelection : internalSelection
   const solvedSet = new Set(solvedRegionIds)
   const adjacentSet = new Set(adjacentRegionIds)
   const parent = parentRegionId ? getRegion(parentRegionId) : undefined
@@ -142,7 +145,7 @@ function ScopedRegionMap({
   }, [loadState.status, onReady])
 
   const selectRegion = (id: string) => {
-    setInternalSelection(id)
+    if (!isSelectionControlled) setInternalSelection(id)
     onRegionSelect?.(id)
   }
   const retry = () => {
@@ -187,7 +190,7 @@ function ScopedRegionMap({
             const isAdjacent = adjacentSet.has(region.regionId)
             const stateNames = [isActive ? '문제 지역' : '', isSolved ? '맞힌 지역' : '', isAdjacent ? '인접 지역' : '', isSelected ? '선택됨' : ''].filter(Boolean)
             return <g key={region.regionId} data-region-id={region.regionId}
-              className={['district', isAdjacent ? 'district--adjacent' : '', isSolved ? 'district--solved' : '', isActive ? `district--${resultState}` : '', isSelected ? 'district--selected' : ''].filter(Boolean).join(' ')}
+              className={['district', isAdjacent ? 'district--adjacent' : '', isSolved && !isActive ? 'district--solved' : '', isActive ? `district--${resultState}` : '', isSelected ? 'district--selected' : ''].filter(Boolean).join(' ')}
               role={interactive ? 'button' : undefined} tabIndex={interactive ? 0 : undefined}
               aria-current={isActive ? 'true' : undefined} aria-label={[region.name, ...stateNames].join(', ')} aria-pressed={interactive ? isSelected : undefined}
               onClick={interactive ? () => selectRegion(region.regionId) : undefined}

@@ -78,6 +78,42 @@ describe('RegionPackMap', () => {
     expect(getComputedStyle(path).fill).toBe('var(--brand-primary)')
   })
 
+  it('이미 맞힌 문제 지역에 오답 결과가 나오면 과거 성공색 대신 오답 상태를 표시한다', async () => {
+    const props = { packId: 'gyeonggi' as const, activeRegionId: 'gyeonggi:seongnam', solvedRegionIds: ['gyeonggi:seongnam'] }
+    const { rerender } = render(<><style>{styles}</style><RegionPackMap {...props} /></>)
+    const map = await screen.findByRole('group', { name: '경기 31개 시·군 지도' })
+    rerender(<><style>{styles}</style><RegionPackMap {...props} result={{ correct: false, answer: '수원시' }} /></>)
+    const region = within(map).getByRole('button', { name: /^성남시/u })
+    expect(region.classList.contains('district--incorrect')).toBe(true)
+    // Mutually exclusive visual states avoid specificity-dependent success fill.
+    // The historical solved state remains available in the accessible name.
+    expect(region.classList.contains('district--solved')).toBe(false)
+    expect(region.getAttribute('aria-label')).toContain('맞힌 지역')
+    expect(getComputedStyle(region.querySelector('.district-shape')!).fill).toBe('var(--answer-incorrect)')
+  })
+
+  it('부모가 같은 팩에서 선택을 해제하면 강조·눌림·선택 안내도 해제한다', async () => {
+    function ControlledMap() {
+      const [selected, setSelected] = useState<string>()
+      return <>
+        <RegionPackMap packId="gyeonggi" selectedRegionId={selected} onRegionSelect={setSelected} />
+        <button type="button" onClick={() => setSelected(undefined)}>선택 해제</button>
+      </>
+    }
+    render(<ControlledMap />)
+    const map = await screen.findByRole('group', { name: '경기 31개 시·군 지도' })
+    const region = within(map).getByRole('button', { name: /^수원시/u })
+    fireEvent.click(region)
+    expect(region.getAttribute('aria-pressed')).toBe('true')
+    expect(region.classList.contains('district--selected')).toBe(true)
+    expect(screen.getByText(/선택한 지역: 수원시/u)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '선택 해제' }))
+    expect(region.getAttribute('aria-pressed')).toBe('false')
+    expect(region.classList.contains('district--selected')).toBe(false)
+    expect(screen.queryByText(/선택한 지역:/u)).toBeNull()
+    expect(map.querySelector('[aria-pressed="true"]')).toBeNull()
+  })
+
   it('불러오기 실패 시 목록 검색으로 선택할 수 있고 재시도로 지도를 복구한다', async () => {
     vi.spyOn(geometry, 'loadGeometry').mockRejectedValueOnce(new Error('unavailable'))
     const selected: string[] = []
