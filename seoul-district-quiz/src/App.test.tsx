@@ -68,8 +68,8 @@ function recordsAtStageTwo(regionId: string): PersonalRecordsV2 {
   }
 }
 
-async function openSeongnamCourse(records = emptyRecords()) {
-  render(<App initialRecords={records} />)
+async function openSeongnamCourse(records: PersonalRecordsV2 | null = emptyRecords()) {
+  render(<App initialRecords={records ?? undefined} />)
   fireEvent.click(screen.getByRole('button', { name: '새 지역 찾아보기' }))
   const search = screen.getByRole('searchbox', { name: '지역명 검색' })
   fireEvent.change(search, { target: { value: '성남' } })
@@ -78,7 +78,7 @@ async function openSeongnamCourse(records = emptyRecords()) {
   return screen.findByText('01')
 }
 
-async function answerCurrentCourseQuestion(correct: boolean) {
+async function answerCurrentCourseQuestion(correct: boolean, beforeAnswer?: () => void) {
   const activeRegion = await waitFor(() => {
     const node = document.querySelector<SVGGElement>('[aria-current="true"]')
     expect(node).toBeTruthy()
@@ -92,6 +92,7 @@ async function answerCurrentCourseQuestion(correct: boolean) {
     ? within(answerGroup).getByRole('button', { name: answer })
     : options.find((candidate) => candidate.textContent !== answer)
   expect(option).toBeTruthy()
+  beforeAnswer?.()
   fireEvent.click(option!)
   fireEvent.click(screen.getByRole('button', { name: '정답 확인' }))
   fireEvent.click(await screen.findByRole('button', { name: '계속하기' }))
@@ -111,6 +112,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
@@ -170,5 +172,47 @@ describe('regional learning app flow', () => {
     expect((await screen.findByText(/문제 지역이 강조/u)).closest('figure')?.classList.contains('map-card--silhouette')).toBe(true)
     for (let index = 0; index < 5; index += 1) await answerCurrentCourseQuestion(true)
     expect(await screen.findByText('익숙해지는 중 → 익숙함')).toBeTruthy()
+  })
+
+  it('오답 복습은 안내한 두 문제만 제공하고 완료한 세트의 결과와 저장 기록을 보존한다', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-11T14:59:00.000Z'))
+    let elapsedMs = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => elapsedMs)
+    storage.getItem.mockResolvedValue(JSON.stringify(emptyRecords()))
+    storage.setItem.mockResolvedValue(undefined)
+    await openSeongnamCourse(null)
+    for (let index = 0; index < 5; index += 1) {
+      await answerCurrentCourseQuestion(index >= 3, () => { elapsedMs += 1250 })
+    }
+    for (let index = 0; index < 2; index += 1) await answerCurrentCourseQuestion(true)
+
+    const summary = screen.getByRole('region', { name: '이번 학습 결과' })
+    expect(within(summary).getByText('20')).toBeTruthy()
+    expect(within(summary).getByText('2/5')).toBeTruthy()
+    expect(within(summary).getByText('6.3초')).toBeTruthy()
+    const originalSummary = summary.textContent
+    const originalMastery = screen.getByRole('region', { name: '성남시 숙련도' }).textContent
+    await waitFor(() => {
+      const saved = JSON.parse(storage.setItem.mock.calls.at(-1)?.[1] ?? '{}')
+      expect(saved.dailyStreak?.lastCompletedDate).toBe('2026-09-11')
+      expect(saved.progressByRegion?.['gyeonggi:seongnam']).toMatchObject({ stage: 0, attempts: 1 })
+    })
+    const savedBeforeReview = storage.setItem.mock.calls.at(-1)?.[1]
+    const writesBeforeReview = storage.setItem.mock.calls.length
+
+    fireEvent.click(screen.getByRole('button', { name: '오답만 복습 (2)' }))
+    // An unscored replay crossing midnight must not count as another learning day.
+    vi.setSystemTime(new Date('2026-09-11T15:01:00.000Z'))
+    for (let index = 0; index < 2; index += 1) {
+      expect(screen.getByText('확인 문제')).toBeTruthy()
+      await answerCurrentCourseQuestion(true, () => { elapsedMs += 2500 })
+    }
+
+    expect(screen.getByRole('region', { name: '이번 학습 결과' }).textContent).toBe(originalSummary)
+    expect(screen.getByRole('region', { name: '성남시 숙련도' }).textContent).toBe(originalMastery)
+    expect(screen.getByRole('button', { name: '오늘 학습 마치기' })).toBeTruthy()
+    expect(storage.setItem.mock.calls.at(-1)?.[1]).toBe(savedBeforeReview)
+    expect(storage.setItem.mock.calls.length).toBe(writesBeforeReview)
   })
 })

@@ -858,7 +858,7 @@ function RegionalCompleteScreen({
     </section>
     {saveFailed ? <p className="record-save-notice" role="status">이번 기록을 저장하지 못했어요. 다음 저장 때 다시 시도할게요.</p> : null}
     <div className="bottom-action bottom-action--stacked">
-      {wrongQuestions.length > 0 ? <button className="secondary-button" type="button" onClick={onReview}>오답만 복습 ({wrongQuestions.length})</button> : null}
+      {wrongQuestions.length > 0 ? <button className="secondary-button" type="button" onClick={onReview}>오답만 복습 ({buildConfirmationQuestions(wrongQuestions).length})</button> : null}
       <button className="primary-button" type="button" onClick={onFinish}>오늘 학습 마치기</button>
       <button className="secondary-button" type="button" onClick={onRestart}>한 세트 더</button>
       <button className="text-button" type="button" onClick={onBrowse}>새 지역 찾아보기</button>
@@ -898,17 +898,21 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
   const [typingElapsedMs, setTypingElapsedMs] = useState(0)
   const sessionSequence = useRef(0)
 
-  const resetQuestionState = (nextQuestions: Question[]) => {
+  const resetQuestionInteraction = (nextQuestions: Question[]) => {
     setQuestions(nextQuestions)
     setQuestionIndex(0)
     setHearts(3)
-    setXp(0)
     setCombo(0)
+    setResult(null)
+    setScreen('course')
+  }
+
+  const resetQuestionState = (nextQuestions: Question[]) => {
+    setXp(0)
     setCorrectCount(0)
     setWrongQuestions([])
     setAnswerDurations([])
-    setResult(null)
-    setScreen('course')
+    resetQuestionInteraction(nextQuestions)
   }
 
   const resetLegacySession = (nextQuestions: Question[], mode = selectedMode, kind: SessionKind = 'regular') => {
@@ -931,7 +935,7 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
       confirmationAdded: false,
     })
     setRecentTargetRegionId(targetRegionId)
-    resetQuestionState(plan.scoredQuestions.map(createRegionalQuestion))
+    resetQuestionState(plan.scoredQuestions.map((question) => createRegionalQuestion(question)))
   }
 
   const answerQuestion = (answer: string, elapsedMs: number) => {
@@ -993,7 +997,8 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
 
     if (regionalSession && !regionalSession.confirmationAdded && regionalSession.wrongQuestions.length > 0) {
       const confirmations = buildConfirmationQuestions(regionalSession.wrongQuestions)
-      setQuestions((current) => [...current, ...confirmations.map(createRegionalQuestion)])
+      const confirmationQuestions = confirmations.map((question) => createRegionalQuestion(question))
+      setQuestions((current) => [...current, ...confirmationQuestions])
       setRegionalSession({ ...regionalSession, confirmationAdded: true })
       setQuestionIndex((index) => index + 1)
       setResult(null)
@@ -1001,7 +1006,7 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
     }
 
     if (regionalSession) {
-      recordCourseCompleted(new Date())
+      if (sessionKind !== 'review') recordCourseCompleted(new Date())
       setScreen('complete')
       setResult(null)
       return
@@ -1077,8 +1082,8 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
         onBrowse={() => setScreen('region-picker')}
         onReview={() => {
           const confirmations = buildConfirmationQuestions(regionalSession.wrongQuestions)
-          setRegionalSession({ ...regionalSession, confirmationAdded: true })
-          resetQuestionState(confirmations.map(createRegionalQuestion))
+          setSessionKind('review')
+          resetQuestionInteraction(confirmations.map((question) => createRegionalQuestion(question)))
         }}
       /> : null}
       {screen === 'complete' && !regionalSession ? (

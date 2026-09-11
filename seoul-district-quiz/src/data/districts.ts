@@ -68,7 +68,7 @@ export function shuffleDistricts(random = Math.random) {
   return districts
 }
 
-function regionChoices(regionId: string) {
+function regionChoices(regionId: string, random: () => number) {
   const region = getRegion(regionId)
   if (!region) return []
   const siblings = region.parentId === region.packId
@@ -78,9 +78,14 @@ function regionChoices(regionId: string) {
     .flatMap((id) => getRegion(id) ?? [])
     .filter((candidate) => candidate.packId === region.packId && candidate.level === region.level)
   const choices = [region, ...neighbors, ...siblings]
-  return [...new Map(choices.map((candidate) => [candidate.id, candidate])).values()]
+  const options = [...new Map(choices.map((candidate) => [candidate.id, candidate])).values()]
     .slice(0, 4)
     .map((candidate) => candidate.name)
+  for (let index = options.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(random() * (index + 1))
+    ;[options[index], options[randomIndex]] = [options[randomIndex], options[index]]
+  }
+  return options
 }
 
 function regionHint(regionId: string) {
@@ -94,13 +99,13 @@ function regionHint(regionId: string) {
   return parent ? `${region.name}은 ${parent.name} 안에 있어요.` : '지도에서 지역의 위치를 다시 확인해 보세요.'
 }
 
-export function createRegionalQuestion(question: CourseQuestion): Question {
+export function createRegionalQuestion(question: CourseQuestion, random = Math.random): Question {
   const usesText = question.questionType === 'text-recall'
   return {
     district: question.answer,
     hint: regionHint(question.regionId),
     mode: usesText ? 'text' : 'choice',
-    options: usesText || question.questionType === 'map-selection' ? undefined : regionChoices(question.regionId),
+    options: usesText || question.questionType === 'map-selection' ? undefined : regionChoices(question.regionId, random),
     regionId: question.regionId,
     questionType: question.questionType,
     bucket: question.bucket,
