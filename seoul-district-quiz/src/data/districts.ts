@@ -1,8 +1,16 @@
+import { getNeighbors } from './adjacency'
+import { getRegion, getTopLevelRegions, REGIONS_BY_ID } from './regions'
+import type { CourseBucket, CourseQuestion, CourseQuestionType } from '../game/courseGenerator'
+
 export type Question = {
   district: string
   hint: string
   mode: 'choice' | 'text'
   options?: string[]
+  regionId?: string
+  questionType?: CourseQuestionType
+  bucket?: CourseBucket
+  scored?: boolean
 }
 
 export const DISTRICT_NAME_BY_MAP_ID: Readonly<Record<string, string>> = {
@@ -58,4 +66,44 @@ export function shuffleDistricts(random = Math.random) {
     ;[districts[index], districts[randomIndex]] = [districts[randomIndex], districts[index]]
   }
   return districts
+}
+
+function regionChoices(regionId: string) {
+  const region = getRegion(regionId)
+  if (!region) return []
+  const siblings = region.parentId === region.packId
+    ? getTopLevelRegions(region.packId)
+    : Object.values(REGIONS_BY_ID).filter((candidate) => candidate.parentId === region.parentId)
+  const neighbors = getNeighbors(regionId)
+    .flatMap((id) => getRegion(id) ?? [])
+    .filter((candidate) => candidate.packId === region.packId && candidate.level === region.level)
+  const choices = [region, ...neighbors, ...siblings]
+  return [...new Map(choices.map((candidate) => [candidate.id, candidate])).values()]
+    .slice(0, 4)
+    .map((candidate) => candidate.name)
+}
+
+function regionHint(regionId: string) {
+  const region = getRegion(regionId)
+  if (!region) return '지도에서 지역의 위치를 다시 확인해 보세요.'
+  const neighborNames = getNeighbors(regionId)
+    .slice(0, 2)
+    .flatMap((id) => getRegion(id)?.name ?? [])
+  if (neighborNames.length > 0) return `${region.name}은 ${neighborNames.join('·')}와 경계를 맞대고 있어요.`
+  const parent = getRegion(region.parentId ?? '')
+  return parent ? `${region.name}은 ${parent.name} 안에 있어요.` : '지도에서 지역의 위치를 다시 확인해 보세요.'
+}
+
+export function createRegionalQuestion(question: CourseQuestion): Question {
+  const usesText = question.questionType === 'text-recall'
+  return {
+    district: question.answer,
+    hint: regionHint(question.regionId),
+    mode: usesText ? 'text' : 'choice',
+    options: usesText || question.questionType === 'map-selection' ? undefined : regionChoices(question.regionId),
+    regionId: question.regionId,
+    questionType: question.questionType,
+    bucket: question.bucket,
+    scored: question.scored,
+  }
 }

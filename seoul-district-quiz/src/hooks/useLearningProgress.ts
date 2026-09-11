@@ -4,12 +4,13 @@ import {
   recordCourseCompleted,
   recordRegionAnswer,
   type RegionAnswerResult,
+  type PersonalRecordsV2,
 } from '../game/personalRecords'
 import type { ReviewDate } from '../game/progress'
 import { usePersonalRecords } from './usePersonalRecords'
 
-export function useLearningProgress() {
-  const personalRecords = usePersonalRecords()
+export function useLearningProgress(initialRecords?: PersonalRecordsV2) {
+  const personalRecords = usePersonalRecords(initialRecords)
   const { updateRecords } = personalRecords
 
   const recordAnswer = useCallback((result: RegionAnswerResult) => {

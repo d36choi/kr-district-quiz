@@ -23,7 +23,7 @@ export type RegionPackMapProps = {
   interactive?: boolean
   onRegionSelect?: (regionId: string) => void
   onReady?: () => void
-  variant?: 'quiz' | 'typing' | 'collection' | 'picker'
+  variant?: 'quiz' | 'typing' | 'collection' | 'picker' | 'silhouette'
   /** Picker supplies its own always-visible search/list. */
   showRegionList?: boolean
   /** Preserves existing Seoul quiz instructions without revealing its answer. */
@@ -175,10 +175,14 @@ function ScopedRegionMap(props: RegionPackMapProps & { parentRegionId?: string }
     {loadState.status === 'ready' && paths.length === 0 ? <p role="status">이 지역의 세부 구 지도가 없어요.</p> : null}
     {loadState.status === 'ready' && paths.length > 0 ? <div className="seoul-map-stage">
       <svg className="seoul-map region-pack-map__svg" viewBox={loadState.data.viewBox} role="group" aria-label={mapLabel} ref={(node) => {
-        if (!node || !parentRegionId) return
-        const group = node.querySelector<SVGGElement>('.region-boundaries')
-        if (!group?.getBBox) return
-        const bounds = group.getBBox()
+        if (!node) return
+        const focusNode = variant === 'silhouette' && activeRegionId
+          ? node.querySelector<SVGPathElement>(`[data-region-id="${activeRegionId}"] .district-shape`)
+          : parentRegionId
+            ? node.querySelector<SVGGElement>('.region-boundaries')
+            : null
+        if (!focusNode?.getBBox) return
+        const bounds = focusNode.getBBox()
         const padding = Math.max(bounds.width, bounds.height) * 0.08
         node.setAttribute('viewBox', `${bounds.x - padding} ${bounds.y - padding} ${bounds.width + padding * 2} ${bounds.height + padding * 2}`)
       }}>

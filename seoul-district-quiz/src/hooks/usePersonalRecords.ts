@@ -14,9 +14,10 @@ type PendingMutation = {
   updater: (current: PersonalRecordsV2) => PersonalRecordsV2
 }
 
-export function usePersonalRecords() {
-  const [records, setRecords] = useState(createEmptyPersonalRecords)
-  const [loadStatus, setLoadStatus] = useState<LoadStatus>('loading')
+export function usePersonalRecords(initialRecords?: PersonalRecordsV2) {
+  const isMemoryBacked = initialRecords !== undefined
+  const [records, setRecords] = useState(() => initialRecords ?? createEmptyPersonalRecords())
+  const [loadStatus, setLoadStatus] = useState<LoadStatus>(isMemoryBacked ? 'ready' : 'loading')
   const [saveFailed, setSaveFailed] = useState(false)
   const recordsRef = useRef(records)
   const writeQueueRef = useRef(Promise.resolve())
@@ -104,8 +105,9 @@ export function usePersonalRecords() {
   }, [enqueueSnapshot])
 
   useEffect(() => {
+    if (isMemoryBacked) return
     void performLoad()
-  }, [performLoad])
+  }, [isMemoryBacked, performLoad])
 
   const retryLoad = useCallback(() => {
     setLoadStatus((current) => current === 'error' ? 'error' : 'loading')
@@ -124,10 +126,10 @@ export function usePersonalRecords() {
     setRecords(nextRecords)
     // An unread base may contain sibling progress. Keep mutations pending until
     // a successful load can reconcile them before any snapshot is persisted.
-    if (hasLoadedBaseRef.current && pendingLoadsRef.current === 0) {
+    if (!isMemoryBacked && hasLoadedBaseRef.current && pendingLoadsRef.current === 0) {
       enqueueSnapshot(nextRecords, revision)
     }
-  }, [enqueueSnapshot])
+  }, [enqueueSnapshot, isMemoryBacked])
 
   const legacyRecords: PersonalRecordsV1 = {
     version: 1,

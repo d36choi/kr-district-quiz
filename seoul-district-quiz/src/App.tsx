@@ -4,24 +4,41 @@ import gsap from 'gsap'
 import { Check, CheckCircle2, Clock3, Flame, Heart, Keyboard, ListChecks, MapPin, MapPinned, PenLine, Sparkles, Timer, Trophy } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import './App.css'
+import { RegionPackMap } from './components/RegionPackMap'
+import { RegionPicker } from './components/RegionPicker'
 import { SeoulDistrictMap } from './components/SeoulDistrictMap'
-import { ALL_DISTRICT_NAMES, CHOICE_QUESTIONS, TEXT_QUESTIONS, shuffleDistricts, type Question } from './data/districts'
+import { ALL_DISTRICT_NAMES, CHOICE_QUESTIONS, TEXT_QUESTIONS, createRegionalQuestion, shuffleDistricts, type Question } from './data/districts'
+import { getRegion, getTopLevelRegions, REGIONS_BY_ID, type RegionPackId } from './data/regions'
+import { buildConfirmationQuestions, buildCourse, type CoursePlan, type CourseQuestion } from './game/courseGenerator'
 import {
   recordAnswer,
   recordCompletedSet,
   recordMasteredDistrict,
   type AnswerMode,
-  type PersonalRecordsV1,
+  type PersonalRecordsV2,
   type SessionKind,
 } from './game/personalRecords'
-import { usePersonalRecords } from './hooks/usePersonalRecords'
+import { isReviewDue, type ProgressStage } from './game/progress'
+import { useLearningProgress } from './hooks/useLearningProgress'
 
 gsap.registerPlugin(useGSAP)
 
-type Screen = 'home' | 'collection' | 'records' | 'mode' | 'quiz' | 'complete' | 'typing' | 'typing-complete'
+type Screen = 'home' | 'region-picker' | 'collection' | 'records' | 'mode' | 'course' | 'complete' | 'typing' | 'typing-complete'
 type GameMode = AnswerMode | 'all-typing'
 type AnswerResult = { correct: boolean; answer: string }
 type SafeInsets = { top: number; bottom: number; left: number; right: number }
+type RegionalSession = {
+  plan: CoursePlan
+  sessionId: string
+  startingStage: ProgressStage
+  wrongQuestions: CourseQuestion[]
+  confirmationAdded: boolean
+}
+
+const STAGE_LABELS: readonly string[] = ['처음 봄', '익히는 중', '익숙해지는 중', '익숙함', '잘 알고 있음']
+const REGION_ID_BY_PACK_AND_NAME = new Map(
+  Object.values(REGIONS_BY_ID).map((region) => [`${region.packId}:${region.name}`, region.id]),
+)
 
 const QUESTIONS_BY_MODE: Record<AnswerMode, Question[]> = {
   choice: CHOICE_QUESTIONS,
@@ -234,30 +251,56 @@ function AllDistrictsCompleteScreen({ elapsedMs, onRestart, onChangeMode }: { el
   )
 }
 
+function getDueRegionIds(records: PersonalRecordsV2, now = new Date()) {
+  return Object.values(records.progressByRegion)
+    .filter((progress) => isReviewDue(progress, now))
+    .toSorted((left, right) => Date.parse(left.nextReviewAt ?? '') - Date.parse(right.nextReviewAt ?? ''))
+    .map((progress) => progress.regionId)
+}
+
+function getRecentProgress(records: PersonalRecordsV2) {
+  return Object.values(records.progressByRegion)
+    .filter((progress) => progress.lastAnsweredAt !== null)
+    .toSorted((left, right) => Date.parse(right.lastAnsweredAt ?? '') - Date.parse(left.lastAnsweredAt ?? ''))[0]
+}
+
 function HomeScreen({
-  records, loadStatus, onStart, onOpenCollection, onOpenRecords,
+  records, dailyStreak, loadStatus, recentTargetRegionId, onStartReview, onBrowse, onOpenCollection, onOpenRecords,
 }: {
-  records: PersonalRecordsV1
+  records: PersonalRecordsV2
+  dailyStreak: number
   loadStatus: 'loading' | 'ready' | 'error'
-  onStart: () => void
+  recentTargetRegionId?: string
+  onStartReview: (regionId: string) => void
+  onBrowse: () => void
   onOpenCollection: () => void
   onOpenRecords: () => void
 }) {
   const scope = useRef<HTMLElement>(null)
+  const dueRegionIds = getDueRegionIds(records)
+  const recentProgress = records.progressByRegion[recentTargetRegionId ?? ''] ?? getRecentProgress(records)
+  const recentRegion = getRegion(recentProgress?.regionId ?? '')
+  const learnedByPack = new Map<RegionPackId, number>([['seoul', 0], ['gyeonggi', 0]])
+  for (const progress of Object.values(records.progressByRegion)) {
+    const region = getRegion(progress.regionId)
+    if (progress.stage > 0 && region && region.parentId === region.packId) {
+      learnedByPack.set(region.packId, (learnedByPack.get(region.packId) ?? 0) + 1)
+    }
+  }
   const recordSummary = loadStatus === 'loading'
     ? '기록을 불러오는 중이에요.'
     : loadStatus === 'error'
       ? '저장된 기록을 다시 확인해 주세요.'
-      : records.currentCorrectStreak > 0
-        ? `지금 ${records.currentCorrectStreak}문제 연속 정답 중이에요.`
-        : records.bestCorrectStreak > 0
-          ? `개인 최고는 ${records.bestCorrectStreak}문제 연속 정답이에요.`
+      : dailyStreak > 0
+        ? `${dailyStreak}일째 학습을 이어가고 있어요.`
+        : records.bestCombo > 0
+          ? `개인 최고는 ${records.bestCombo}문제 연속 정답이에요.`
           : '첫 완벽 세트 기록을 만들어 보세요.'
   const recordValue = loadStatus === 'loading'
     ? '확인 중'
     : loadStatus === 'error'
       ? '재시도 필요'
-      : `최고 ${records.bestCorrectStreak}문제`
+      : `최고 ${records.bestCombo}문제`
   const masteredCount = records.masteredDistricts.length
 
   useGSAP(() => {
@@ -277,15 +320,39 @@ function HomeScreen({
     <main ref={scope} className="canvas home-screen">
       <section className="home-hero">
         <div className="home-copy">
-          <p className="home-kicker">매일 1분, 서울 한 바퀴</p>
-          <h1 className="max-w-full">오늘의 서울<span className="home-title-inline-map" aria-hidden="true" /><br /><span>5문제</span></h1>
-          <p className="home-description">지도에 표시된 자치구를 맞히며<br />서울을 익혀보세요.</p>
+          <p className="home-kicker">매일 1~2분, 지도 한 바퀴</p>
+          <h1 className="max-w-full">오늘의 지역 학습</h1>
+          <p className="home-description">관심 지역과 주변 지역을<br />다섯 문제로 익혀보세요.</p>
         </div>
         <div className="home-map-visual" aria-hidden="true">
           <div className="home-map-visual__shape" />
           <span className="home-map-visual__pin icon-box"><MapPin size={18} strokeWidth={2.4} /></span>
           <span className="home-map-visual__orbit" />
         </div>
+      </section>
+
+      <section className="daily-review-card" aria-label="오늘의 복습">
+        <div>
+          <span>오늘 다시 볼 지역</span>
+          <strong>복습할 지역 {dueRegionIds.length}개</strong>
+        </div>
+        <p>{recentRegion && recentProgress
+          ? `최근 학습 · ${recentRegion.name} · ${STAGE_LABELS[recentProgress.stage]}`
+          : '아직 학습한 지역이 없어요. 첫 지역을 골라보세요.'}</p>
+      </section>
+
+      <section className="pack-progress-grid" aria-label="서울 경기 학습 현황">
+        {(['seoul', 'gyeonggi'] as const).map((packId) => {
+          const total = getTopLevelRegions(packId).length
+          const learned = learnedByPack.get(packId) ?? 0
+          return <article className="pack-progress-card" key={packId}>
+            <span>{packId === 'seoul' ? '서울 25구' : '경기 31시·군'}</span>
+            <strong>{learned}<small> / {total}</small></strong>
+            <div role="progressbar" aria-label={`${packId === 'seoul' ? '서울' : '경기'} 학습 ${learned} / ${total}`} aria-valuemin={0} aria-valuemax={total} aria-valuenow={learned}>
+              <span style={{ width: `${(learned / total) * 100}%` }} />
+            </div>
+          </article>
+        })}
       </section>
 
       <section className="home-bento" aria-label="학습 현황">
@@ -305,9 +372,10 @@ function HomeScreen({
         </button>
       </section>
 
-      <div className="bottom-action home-action">
-        <button className="primary-button" type="button" onClick={onStart}>오늘의 5문제 시작</button>
-        <p>약 1분이면 끝나요</p>
+      <div className="bottom-action bottom-action--stacked home-action">
+        {dueRegionIds.length > 0 ? <button className="primary-button" type="button" onClick={() => onStartReview(dueRegionIds[0])}>오늘의 5문제</button> : null}
+        <button className={dueRegionIds.length > 0 ? 'secondary-button' : 'primary-button'} type="button" onClick={onBrowse}>새 지역 찾아보기</button>
+        <p>약 1~2분이면 끝나요</p>
       </div>
     </main>
   )
@@ -328,7 +396,7 @@ function DistrictCollectionScreen({
   onStart,
   onBack,
 }: {
-  records: PersonalRecordsV1
+  records: PersonalRecordsV2
   loadStatus: 'loading' | 'ready' | 'error'
   onRetry: () => void
   onStart: () => void
@@ -411,7 +479,7 @@ function formatRecordDuration(milliseconds: number | null) {
 function RecordsDashboardScreen({
   records, loadStatus, onRetry, onStart, onBack,
 }: {
-  records: PersonalRecordsV1
+  records: PersonalRecordsV2
   loadStatus: 'loading' | 'ready' | 'error'
   onRetry: () => void
   onStart: () => void
@@ -474,14 +542,55 @@ function RecordsDashboardScreen({
   )
 }
 
+function RegionPickerScreen({
+  selectedPackId,
+  selectedRegionId,
+  onPackChange,
+  onRegionSelect,
+  onStart,
+  onStartTyping,
+  onBack,
+}: {
+  selectedPackId: RegionPackId
+  selectedRegionId?: string
+  onPackChange: (packId: RegionPackId) => void
+  onRegionSelect: (regionId: string) => void
+  onStart: (regionId: string) => void
+  onStartTyping: () => void
+  onBack: () => void
+}) {
+  return <main className="canvas region-picker-screen">
+    <section className="region-picker-heading">
+      <span className="eyebrow">새 지역 학습</span>
+      <h1>어느 지역부터<br />익혀볼까요?</h1>
+      <p>지역과 맞닿은 주변 지역을 다섯 문제로 함께 살펴봐요.</p>
+    </section>
+    <RegionPicker
+      selectedPackId={selectedPackId}
+      selectedRegionId={selectedRegionId}
+      onPackChange={onPackChange}
+      onRegionSelect={onRegionSelect}
+      onStart={onStart}
+    />
+    {selectedPackId === 'seoul' ? <button className="typing-entry-button" type="button" onClick={onStartTyping}>
+      <Keyboard size={22} aria-hidden="true" />
+      <span><strong>서울 25구 타자 도전</strong><small>25개 자치구 이름을 차례로 입력해요.</small></span>
+    </button> : null}
+    <div className="region-picker-back">
+      <button className="secondary-button" type="button" onClick={onBack}>홈으로 돌아가기</button>
+    </div>
+  </main>
+}
+
 function QuizScreen({
-  question, questionIndex, totalQuestions, hearts, xp, result, onAnswer, onContinue,
+  question, questionIndex, totalQuestions, hearts, xp, combo, result, onAnswer, onContinue,
 }: {
   question: Question
   questionIndex: number
   totalQuestions: number
   hearts: number
   xp: number
+  combo: number
   result: AnswerResult | null
   onAnswer: (answer: string, elapsedMs: number) => void
   onContinue: () => void
@@ -542,28 +651,54 @@ function QuizScreen({
   }
 
   const pendingAnswer = question.mode === 'choice' ? selectedAnswer : textAnswer.trim()
+  const region = getRegion(question.regionId ?? '')
+  const isMapSelection = question.questionType === 'map-selection'
+  const isConfirmation = question.scored === false
+  const heading = isMapSelection
+    ? `${question.district}은 지도에서 어디일까요?`
+    : question.questionType === 'silhouette'
+      ? '이 지역의 모양은 어디일까요?'
+      : '지도에 표시된 지역은 어디일까요?'
+  const detail = region?.packId === 'gyeonggi' && region.level === 'district' && region.parentId
+    ? { parentRegionId: region.parentId }
+    : 'overview'
+  const selectedMapRegionId = isMapSelection && region
+    ? REGION_ID_BY_PACK_AND_NAME.get(`${region.packId}:${selectedAnswer}`)
+    : undefined
 
   return (
     <main ref={scope} className="canvas quiz-screen">
       <section className="quiz-status" aria-label="퀴즈 진행 상황">
         <div className="progress-track" role="progressbar" aria-label={`${questionIndex + 1} / ${totalQuestions} 문제`} aria-valuemin={1} aria-valuemax={totalQuestions} aria-valuenow={questionIndex + 1}>
-          <span className="progress-track__value" />
+          <span className="progress-track__value" style={{ transform: `scaleX(${(questionIndex + 1) / totalQuestions})` }} />
         </div>
         <span className="status-pill status-pill--heart"><Heart size={17} strokeWidth={2.4} /> {hearts}</span>
         <span className="status-pill status-pill--xp">{xp} XP</span>
+        <span className="status-pill status-pill--combo">{combo} 콤보</span>
         <span className="status-pill status-pill--timer" aria-label={`풀이 시간 ${formatDuration(elapsedMs)}`}>{formatDuration(elapsedMs)}</span>
       </section>
 
-      <section className="question-copy">
-        <div className="question-number"><span>{String(questionIndex + 1).padStart(2, '0')}</span><span>{String(totalQuestions).padStart(2, '0')}</span></div>
-        <h1>지도에 표시된 자치구는<br />어디일까요?</h1>
+      <section className={`question-copy ${isConfirmation ? 'question-copy--confirmation' : ''}`}>
+        <div className="question-number"><span>{isConfirmation ? '확인 문제' : String(questionIndex + 1).padStart(2, '0')}</span><span>{String(totalQuestions).padStart(2, '0')}</span></div>
+        <h1>{question.regionId ? heading : <>지도에 표시된 자치구는<br />어디일까요?</>}</h1>
       </section>
 
-      <SeoulDistrictMap activeDistrict={question.district} result={result} />
+      {region ? <RegionPackMap
+        packId={region.packId}
+        detail={detail}
+        activeRegionId={isMapSelection && !result ? undefined : region.id}
+        selectedRegionId={selectedMapRegionId}
+        result={result}
+        interactive={isMapSelection && !result}
+        variant={question.questionType === 'silhouette' ? 'silhouette' : 'quiz'}
+        onRegionSelect={(regionId) => setSelectedAnswer(getRegion(regionId)?.name ?? '')}
+        showRegionList={isMapSelection}
+        caption={isMapSelection && !result ? `${question.district}의 위치를 지도나 지역 목록에서 선택해 주세요.` : undefined}
+      /> : <SeoulDistrictMap activeDistrict={question.district} result={result} />}
 
       <section className="answer-stage">
-        {question.mode === 'choice' ? (
-          <div className="answer-grid" aria-label="답안 선택">
+        {question.mode === 'choice' && !isMapSelection ? (
+          <div className="answer-grid" role="group" aria-label="답안 선택">
           {question.options?.map((option) => {
             const isChosen = (result?.answer ?? selectedAnswer) === option
             const isCorrectOption = Boolean(result) && option === question.district
@@ -575,13 +710,13 @@ function QuizScreen({
             )
           })}
           </div>
-        ) : (
+        ) : question.mode === 'text' ? (
           <form id="district-answer-form" className="text-answer" onSubmit={submitTextAnswer}>
-          <label htmlFor="district-answer">지역구 이름</label>
-          <input id="district-answer" value={textAnswer} disabled={result !== null} onChange={(event) => setTextAnswer(event.target.value)} placeholder="예: 동대문구" autoComplete="off" />
+          <label htmlFor="district-answer">지역 이름</label>
+          <input id="district-answer" value={textAnswer} disabled={result !== null} onChange={(event) => setTextAnswer(event.target.value)} placeholder={question.regionId ? '예: 성남시' : '예: 동대문구'} autoComplete="off" />
           <p>‘구’를 빼고 입력해도 정답으로 인정해요.</p>
           </form>
-        )}
+        ) : <p className="map-selection-note">지도에서 한 지역을 선택한 뒤 정답을 확인해 주세요.</p>}
       </section>
 
       {result ? (
@@ -616,7 +751,7 @@ function CompleteScreen({
   totalQuestions: number
   answerDurations: number[]
   wrongQuestions: Question[]
-  records: PersonalRecordsV1
+  records: PersonalRecordsV2
   saveFailed: boolean
   onRestart: () => void
   onReview: () => void
@@ -660,13 +795,97 @@ function CompleteScreen({
   )
 }
 
-function App() {
+function formatNextReview(nextReviewAt: string | null | undefined) {
+  if (!nextReviewAt) return '다음 세트에서 다시 만나요.'
+  return `${new Intl.DateTimeFormat('ko-KR', { month: 'long', day: 'numeric', timeZone: 'Asia/Seoul' }).format(new Date(nextReviewAt))}에 다시 보면 좋아요.`
+}
+
+function RegionalCompleteScreen({
+  targetRegionId,
+  startingStage,
+  endingStage,
+  nextReviewAt,
+  xp,
+  correctCount,
+  answerDurations,
+  wrongQuestions,
+  saveFailed,
+  onFinish,
+  onRestart,
+  onBrowse,
+  onReview,
+}: {
+  targetRegionId: string
+  startingStage: ProgressStage
+  endingStage: ProgressStage
+  nextReviewAt?: string | null
+  xp: number
+  correctCount: number
+  answerDurations: number[]
+  wrongQuestions: CourseQuestion[]
+  saveFailed: boolean
+  onFinish: () => void
+  onRestart: () => void
+  onBrowse: () => void
+  onReview: () => void
+}) {
+  const target = getRegion(targetRegionId)
+  const reviewRegions = [...new Map(wrongQuestions.map((question) => [question.regionId, getRegion(question.regionId)])).values()]
+    .filter((region) => region !== undefined)
+    .slice(0, 3)
+  const totalDuration = answerDurations.reduce((total, duration) => total + duration, 0)
+
+  return <main className="canvas complete-screen regional-complete-screen">
+    <section className="completion-hero">
+      <div className="celebration icon-box" aria-hidden="true"><Sparkles size={48} strokeWidth={1.8} /></div>
+      <span className="eyebrow">지역 학습 완료</span>
+      <h1>{target?.name ?? '선택한 지역'}을<br />한 번 더 익혔어요</h1>
+      <p>{correctCount} / 5문제를 맞혔어요.</p>
+    </section>
+    <section className="mastery-result-card" aria-label={`${target?.name ?? '선택 지역'} 숙련도`}>
+      <span>{target?.name ?? '선택 지역'} 숙련도</span>
+      <strong>{STAGE_LABELS[startingStage]} → {STAGE_LABELS[endingStage]}</strong>
+      <p>{formatNextReview(nextReviewAt)}</p>
+    </section>
+    <section className="regional-result-grid" aria-label="이번 학습 결과">
+      <article><span>획득 XP</span><strong>{xp}</strong></article>
+      <article><span>정답</span><strong>{correctCount}/5</strong></article>
+      <article><span>풀이 시간</span><strong>{formatDuration(totalDuration)}</strong></article>
+    </section>
+    <section className="review-region-card">
+      <h2>다시 보면 좋은 지역</h2>
+      {reviewRegions.length > 0 ? <ul>{reviewRegions.map((region) => <li key={region.id}>{region.name}</li>)}</ul> : <p>이번 세트에서 다시 볼 지역은 없어요.</p>}
+    </section>
+    {saveFailed ? <p className="record-save-notice" role="status">이번 기록을 저장하지 못했어요. 다음 저장 때 다시 시도할게요.</p> : null}
+    <div className="bottom-action bottom-action--stacked">
+      {wrongQuestions.length > 0 ? <button className="secondary-button" type="button" onClick={onReview}>오답만 복습 ({wrongQuestions.length})</button> : null}
+      <button className="primary-button" type="button" onClick={onFinish}>오늘 학습 마치기</button>
+      <button className="secondary-button" type="button" onClick={onRestart}>한 세트 더</button>
+      <button className="text-button" type="button" onClick={onBrowse}>새 지역 찾아보기</button>
+    </div>
+  </main>
+}
+
+function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
   const safeArea = useSafeArea()
-  const { records, loadStatus, saveFailed, retryLoad, updateRecords } = usePersonalRecords()
+  const {
+    records,
+    loadStatus,
+    saveFailed,
+    dailyStreak,
+    retryLoad,
+    updateRecords,
+    recordRegionAnswer,
+    recordCourseCompleted,
+  } = useLearningProgress(initialRecords)
   const [screen, setScreen] = useState<Screen>('home')
+  const [selectedPackId, setSelectedPackId] = useState<RegionPackId>('gyeonggi')
+  const [selectedRegionId, setSelectedRegionId] = useState<string>()
+  const [recentTargetRegionId, setRecentTargetRegionId] = useState<string>()
   const [selectedMode, setSelectedMode] = useState<AnswerMode>('choice')
   const [sessionKind, setSessionKind] = useState<SessionKind>('regular')
   const [questions, setQuestions] = useState<Question[]>(CHOICE_QUESTIONS)
+  const [regionalSession, setRegionalSession] = useState<RegionalSession>()
   const [questionIndex, setQuestionIndex] = useState(0)
   const [hearts, setHearts] = useState(3)
   const [xp, setXp] = useState(0)
@@ -677,10 +896,9 @@ function App() {
   const [result, setResult] = useState<AnswerResult | null>(null)
   const [typingDistricts, setTypingDistricts] = useState<string[]>([])
   const [typingElapsedMs, setTypingElapsedMs] = useState(0)
+  const sessionSequence = useRef(0)
 
-  const resetSession = (nextQuestions: Question[], mode = selectedMode, kind: SessionKind = 'regular') => {
-    setSelectedMode(mode)
-    setSessionKind(kind)
+  const resetQuestionState = (nextQuestions: Question[]) => {
     setQuestions(nextQuestions)
     setQuestionIndex(0)
     setHearts(3)
@@ -690,33 +908,105 @@ function App() {
     setWrongQuestions([])
     setAnswerDurations([])
     setResult(null)
-    setScreen('quiz')
+    setScreen('course')
+  }
+
+  const resetLegacySession = (nextQuestions: Question[], mode = selectedMode, kind: SessionKind = 'regular') => {
+    setSelectedMode(mode)
+    setSessionKind(kind)
+    setRegionalSession(undefined)
+    resetQuestionState(nextQuestions)
+  }
+
+  const startRegionalCourse = (targetRegionId: string) => {
+    const plan = buildCourse(targetRegionId, records.progressByRegion, new Date(), Math.random)
+    sessionSequence.current += 1
+    setSelectedMode('choice')
+    setSessionKind('regular')
+    setRegionalSession({
+      plan,
+      sessionId: `regional-course-${Date.now()}-${sessionSequence.current}`,
+      startingStage: records.progressByRegion[targetRegionId]?.stage ?? 0,
+      wrongQuestions: [],
+      confirmationAdded: false,
+    })
+    setRecentTargetRegionId(targetRegionId)
+    resetQuestionState(plan.scoredQuestions.map(createRegionalQuestion))
   }
 
   const answerQuestion = (answer: string, elapsedMs: number) => {
     if (result) return
     const currentQuestion = questions[questionIndex]
     const correct = normalizeDistrict(answer) === normalizeDistrict(currentQuestion.district)
-    if (correct) {
+    const isScored = currentQuestion.scored !== false
+    if (isScored && correct) {
       const nextCombo = combo + 1
       setCombo(nextCombo)
       setCorrectCount((count) => count + 1)
       setXp((score) => score + 10 + (nextCombo >= 3 ? 5 : 0))
-    } else {
+    } else if (isScored) {
       setCombo(0)
       setHearts((count) => Math.max(0, count - 1))
       setWrongQuestions((items) => [...items, currentQuestion])
     }
-    updateRecords((currentRecords) => recordAnswer(currentRecords, {
-      correct,
-      sessionKind,
-      district: currentQuestion.district,
-    }))
-    setAnswerDurations((durations) => [...durations, elapsedMs])
+    if (regionalSession && currentQuestion.regionId) {
+      const courseQuestion: CourseQuestion = {
+        regionId: currentQuestion.regionId,
+        answer: currentQuestion.district,
+        bucket: currentQuestion.bucket ?? 'review',
+        questionType: currentQuestion.questionType ?? 'recognition',
+        scored: isScored,
+      }
+      if (isScored) {
+        recordRegionAnswer({
+          regionId: currentQuestion.regionId,
+          correct,
+          answeredAt: new Date(),
+          questionType: courseQuestion.questionType,
+          sessionId: regionalSession.sessionId,
+          courseId: `region:${regionalSession.plan.targetRegionId}`,
+        })
+        if (!correct) {
+          setRegionalSession((session) => session ? {
+            ...session,
+            wrongQuestions: [...session.wrongQuestions, courseQuestion],
+          } : session)
+        }
+      }
+    } else {
+      updateRecords((currentRecords) => recordAnswer(currentRecords, {
+        correct,
+        sessionKind,
+        district: currentQuestion.district,
+      }))
+    }
+    if (isScored) setAnswerDurations((durations) => [...durations, elapsedMs])
     setResult({ correct, answer })
   }
 
   const continueQuiz = () => {
+    if (questionIndex + 1 < questions.length) {
+      setQuestionIndex((index) => index + 1)
+      setResult(null)
+      return
+    }
+
+    if (regionalSession && !regionalSession.confirmationAdded && regionalSession.wrongQuestions.length > 0) {
+      const confirmations = buildConfirmationQuestions(regionalSession.wrongQuestions)
+      setQuestions((current) => [...current, ...confirmations.map(createRegionalQuestion)])
+      setRegionalSession({ ...regionalSession, confirmationAdded: true })
+      setQuestionIndex((index) => index + 1)
+      setResult(null)
+      return
+    }
+
+    if (regionalSession) {
+      recordCourseCompleted(new Date())
+      setScreen('complete')
+      setResult(null)
+      return
+    }
+
     if (questionIndex + 1 >= questions.length) {
       const totalDurationMs = answerDurations.reduce((total, duration) => total + duration, 0)
       updateRecords((currentRecords) => recordCompletedSet(currentRecords, {
@@ -730,8 +1020,6 @@ function App() {
       setResult(null)
       return
     }
-    setQuestionIndex((index) => index + 1)
-    setResult(null)
   }
 
   const startAllDistrictsTyping = () => {
@@ -749,21 +1037,52 @@ function App() {
 
   return (
     <div className="app-shell" style={appStyle}>
-      {screen === 'home' ? <HomeScreen records={records} loadStatus={loadStatus} onStart={() => setScreen('mode')} onOpenCollection={() => setScreen('collection')} onOpenRecords={() => setScreen('records')} /> : null}
+      {screen === 'home' ? <HomeScreen records={records} dailyStreak={dailyStreak} loadStatus={loadStatus} recentTargetRegionId={recentTargetRegionId} onStartReview={startRegionalCourse} onBrowse={() => setScreen('region-picker')} onOpenCollection={() => setScreen('collection')} onOpenRecords={() => setScreen('records')} /> : null}
       {screen === 'collection' ? <DistrictCollectionScreen records={records} loadStatus={loadStatus} onRetry={() => { void retryLoad() }} onStart={() => setScreen('mode')} onBack={() => setScreen('home')} /> : null}
       {screen === 'records' ? <RecordsDashboardScreen records={records} loadStatus={loadStatus} onRetry={() => { void retryLoad() }} onStart={() => setScreen('mode')} onBack={() => setScreen('home')} /> : null}
+      {screen === 'region-picker' ? <RegionPickerScreen
+        selectedPackId={selectedPackId}
+        selectedRegionId={selectedRegionId}
+        onPackChange={(packId) => {
+          setSelectedPackId(packId)
+          setSelectedRegionId(undefined)
+        }}
+        onRegionSelect={setSelectedRegionId}
+        onStart={startRegionalCourse}
+        onStartTyping={startAllDistrictsTyping}
+        onBack={() => setScreen('home')}
+      /> : null}
       {screen === 'mode' ? <ModeSelectionScreen onSelect={(mode) => {
         if (mode === 'all-typing') {
           startAllDistrictsTyping()
           return
         }
-        resetSession(QUESTIONS_BY_MODE[mode], mode)
+        resetLegacySession(QUESTIONS_BY_MODE[mode], mode)
       }} onBack={() => setScreen('home')} /> : null}
-      {screen === 'quiz' ? (
-        <QuizScreen key={questions[questionIndex].district} question={questions[questionIndex]} questionIndex={questionIndex} totalQuestions={questions.length} hearts={hearts} xp={xp} result={result} onAnswer={answerQuestion} onContinue={continueQuiz} />
+      {screen === 'course' && questions[questionIndex] ? (
+        <QuizScreen key={`${questions[questionIndex].regionId ?? questions[questionIndex].district}:${questionIndex}`} question={questions[questionIndex]} questionIndex={questionIndex} totalQuestions={questions.length} hearts={hearts} xp={xp} combo={combo} result={result} onAnswer={answerQuestion} onContinue={continueQuiz} />
       ) : null}
-      {screen === 'complete' ? (
-        <CompleteScreen mode={selectedMode} xp={xp} correctCount={correctCount} totalQuestions={questions.length} answerDurations={answerDurations} wrongQuestions={wrongQuestions} records={records} saveFailed={saveFailed} onRestart={() => resetSession(QUESTIONS_BY_MODE[selectedMode])} onReview={() => resetSession(wrongQuestions, selectedMode, 'review')} onChangeMode={() => setScreen('mode')} />
+      {screen === 'complete' && regionalSession ? <RegionalCompleteScreen
+        targetRegionId={regionalSession.plan.targetRegionId}
+        startingStage={regionalSession.startingStage}
+        endingStage={records.progressByRegion[regionalSession.plan.targetRegionId]?.stage ?? 0}
+        nextReviewAt={records.progressByRegion[regionalSession.plan.targetRegionId]?.nextReviewAt}
+        xp={xp}
+        correctCount={correctCount}
+        answerDurations={answerDurations}
+        wrongQuestions={regionalSession.wrongQuestions}
+        saveFailed={saveFailed}
+        onFinish={() => setScreen('home')}
+        onRestart={() => startRegionalCourse(regionalSession.plan.targetRegionId)}
+        onBrowse={() => setScreen('region-picker')}
+        onReview={() => {
+          const confirmations = buildConfirmationQuestions(regionalSession.wrongQuestions)
+          setRegionalSession({ ...regionalSession, confirmationAdded: true })
+          resetQuestionState(confirmations.map(createRegionalQuestion))
+        }}
+      /> : null}
+      {screen === 'complete' && !regionalSession ? (
+        <CompleteScreen mode={selectedMode} xp={xp} correctCount={correctCount} totalQuestions={questions.length} answerDurations={answerDurations} wrongQuestions={wrongQuestions} records={records} saveFailed={saveFailed} onRestart={() => resetLegacySession(QUESTIONS_BY_MODE[selectedMode])} onReview={() => resetLegacySession(wrongQuestions, selectedMode, 'review')} onChangeMode={() => setScreen('mode')} />
       ) : null}
       {screen === 'typing' && typingDistricts.length === 25 ? (
         <AllDistrictsTypingScreen districts={typingDistricts} onDistrictSolved={(district) => {
