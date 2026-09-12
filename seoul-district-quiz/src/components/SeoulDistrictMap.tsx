@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { getRegion, getTopLevelRegions } from '../data/regions'
+import { getRegion, getTopLevelRegions, type RegionPackId } from '../data/regions'
 import { RegionPackMap, type RegionAnswerResult } from './RegionPackMap'
 
 const IDS_BY_NAME = new Map(getTopLevelRegions('seoul').map((region) => [region.name, region.id]))
@@ -8,7 +8,7 @@ const EMPTY_DISTRICTS: readonly string[] = []
 /** Compatibility boundary for the existing name-based Seoul quiz and typing game. */
 export function SeoulDistrictMap({
   activeDistrict, result, solvedDistricts = EMPTY_DISTRICTS, interactive = true,
-  variant = 'quiz', selectedDistrict, onDistrictSelect, onReady,
+  variant = 'quiz', selectedDistrict, onDistrictSelect, onMapLoadFailed, onReady,
 }: {
   activeDistrict: string
   result: RegionAnswerResult | null
@@ -17,6 +17,7 @@ export function SeoulDistrictMap({
   variant?: 'quiz' | 'typing' | 'collection'
   selectedDistrict?: string
   onDistrictSelect?: (district: string) => void
+  onMapLoadFailed?: (packId: RegionPackId) => void
   onReady?: () => void
 }) {
   const [internalSelectedDistrict, setInternalSelectedDistrict] = useState(activeDistrict)
@@ -31,7 +32,7 @@ export function SeoulDistrictMap({
   return <RegionPackMap packId="seoul" detail="overview" activeRegionId={IDS_BY_NAME.get(activeDistrict)} result={result}
     solvedRegionIds={solvedDistricts.flatMap((name) => IDS_BY_NAME.get(name) ?? [])}
     selectedRegionId={IDS_BY_NAME.get(selectedDistrict ?? internalSelectedDistrict)}
-    interactive={interactive} variant={variant} caption={caption} onReady={onReady}
+    interactive={interactive} variant={variant} caption={caption} onMapLoadFailed={onMapLoadFailed} onReady={onReady}
     onRegionSelect={(id) => {
       const region = getRegion(id)
       if (!region) return

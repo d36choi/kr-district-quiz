@@ -1,14 +1,16 @@
 import { useId, useRef } from 'react'
+import type { RegionSelectionSource } from '../analytics/events'
 import { getRegion, getTopLevelRegions, REGION_PACKS, REGIONS_BY_ID, type RegionPackId } from '../data/regions'
 import { RegionNameList, RegionPackMap } from './RegionPackMap'
 
 const PACK_IDS: readonly RegionPackId[] = ['seoul', 'gyeonggi']
 
-export function RegionPicker({ selectedPackId, selectedRegionId, onPackChange, onRegionSelect, onStart }: {
+export function RegionPicker({ selectedPackId, selectedRegionId, onPackChange, onRegionSelect, onMapLoadFailed, onStart }: {
   selectedPackId: RegionPackId
   selectedRegionId?: string
   onPackChange: (packId: RegionPackId) => void
-  onRegionSelect: (regionId: string) => void
+  onRegionSelect: (regionId: string, source: RegionSelectionSource) => void
+  onMapLoadFailed?: (packId: RegionPackId) => void
   onStart: (regionId: string) => void
 }) {
   const id = useId()
@@ -31,7 +33,7 @@ export function RegionPicker({ selectedPackId, selectedRegionId, onPackChange, o
         }}>{REGION_PACKS[packId].name}</button>)}
     </div>
     <div role="tabpanel" id={`${id}-panel`} aria-labelledby={`${id}-${selectedPackId}-tab`}>
-      <RegionPackMap packId={selectedPackId} detail="overview" variant="picker" selectedRegionId={selected?.id} onRegionSelect={onRegionSelect} showRegionList={false} interactive />
+      <RegionPackMap packId={selectedPackId} detail="overview" variant="picker" selectedRegionId={selected?.id} onRegionSelect={onRegionSelect} onMapLoadFailed={onMapLoadFailed} showRegionList={false} interactive />
       <RegionNameList key={selectedPackId} regions={getTopLevelRegions(selectedPackId)} selectedRegionId={selected?.id} onRegionSelect={onRegionSelect} showCourseBadges />
     </div>
     <div className="region-picker__action">

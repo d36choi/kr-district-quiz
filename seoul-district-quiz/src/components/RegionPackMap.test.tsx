@@ -117,8 +117,10 @@ describe('RegionPackMap', () => {
   it('불러오기 실패 시 목록 검색으로 선택할 수 있고 재시도로 지도를 복구한다', async () => {
     vi.spyOn(geometry, 'loadGeometry').mockRejectedValueOnce(new Error('unavailable'))
     const selected: string[] = []
-    render(<><style>{styles}</style><RegionPackMap packId="gyeonggi" interactive onRegionSelect={(id) => selected.push(id)} /></>)
+    const failedPacks: string[] = []
+    render(<><style>{styles}</style><RegionPackMap packId="gyeonggi" interactive onRegionSelect={(id) => selected.push(id)} onMapLoadFailed={(packId) => failedPacks.push(packId)} /></>)
     await screen.findByRole('alert')
+    expect(failedPacks).toEqual(['gyeonggi'])
     fireEvent.change(screen.getByRole('searchbox', { name: '지역명 검색' }), { target: { value: '성 남' } })
     const option = screen.getByRole('button', { name: /^성남시/u })
     expect(Number.parseFloat(getComputedStyle(option).minHeight)).toBeGreaterThanOrEqual(44)
@@ -128,6 +130,16 @@ describe('RegionPackMap', () => {
     fireEvent.click(screen.getByRole('button', { name: '다시 불러오기' }))
     expect(await screen.findByRole('group', { name: '경기 31개 시·군 지도' })).toBeTruthy()
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('지도 재시도에서 실패한 요청마다 실패 콜백을 한 번씩만 알린다', async () => {
+    vi.spyOn(geometry, 'loadGeometry').mockRejectedValue(new Error('unavailable'))
+    const failedPacks: string[] = []
+    render(<RegionPackMap packId="gyeonggi" interactive onMapLoadFailed={(packId) => failedPacks.push(packId)} />)
+
+    await screen.findByRole('alert')
+    fireEvent.click(screen.getByRole('button', { name: '다시 불러오기' }))
+    await waitFor(() => expect(failedPacks).toEqual(['gyeonggi', 'gyeonggi']))
   })
 
   it('로딩 중에도 목록을 사용할 수 있고 이전 지역팩의 늦은 응답을 무시한다', async () => {

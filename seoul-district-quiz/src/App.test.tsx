@@ -5,12 +5,25 @@ import { readFileSync } from 'node:fs'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import * as geometry from './data/geometry'
 import { createEmptyPersonalRecords, type PersonalRecordsV2 } from './game/personalRecords'
 import { createRegionProgress } from './game/progress'
 
 const storage = vi.hoisted(() => ({
   getItem: vi.fn(),
   setItem: vi.fn(),
+}))
+
+const analytics = vi.hoisted(() => ({
+  trackAnswerSubmitted: vi.fn(),
+  trackCourseCompleted: vi.fn(),
+  trackCourseStarted: vi.fn(),
+  trackMapLoadFailed: vi.fn(),
+  trackRegionPackViewed: vi.fn(),
+  trackRegionSelected: vi.fn(),
+  trackReviewPromptShown: vi.fn(),
+  trackReviewSessionCompleted: vi.fn(),
+  triggerAnswerHaptic: vi.fn(),
 }))
 
 vi.hoisted(() => {
@@ -32,6 +45,8 @@ vi.mock('@apps-in-toss/web-framework', () => ({
   },
   Storage: storage,
 }))
+
+vi.mock('./analytics/events', () => analytics)
 
 function emptyRecords() {
   return createEmptyPersonalRecords()
@@ -101,6 +116,7 @@ async function answerCurrentCourseQuestion(correct: boolean, beforeAnswer?: () =
 beforeEach(() => {
   storage.getItem.mockReset()
   storage.setItem.mockReset()
+  Object.values(analytics).forEach((tracker) => tracker.mockReset())
   vi.stubGlobal('matchMedia', vi.fn(() => ({
     matches: true,
     addEventListener: vi.fn(),
@@ -118,6 +134,78 @@ afterEach(() => {
 })
 
 describe('regional learning app flow', () => {
+  it('지역 선택 화면은 현재 팩 조회, 검색 선택, 코스 시작을 각각 한 번 기록한다', async () => {
+    render(<App initialRecords={emptyRecords()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '새 지역 찾아보기' }))
+    await screen.findByRole('searchbox', { name: '지역명 검색' })
+    fireEvent.change(screen.getByRole('searchbox', { name: '지역명 검색' }), { target: { value: '성남' } })
+    fireEvent.click(within(screen.getByRole('list', { name: '지역 목록' })).getByRole('button', { name: /^성남시/u }))
+    fireEvent.click(screen.getByRole('button', { name: '성남시 5문제 시작' }))
+
+    expect(analytics.trackRegionPackViewed).toHaveBeenCalledTimes(1)
+    expect(analytics.trackRegionPackViewed).toHaveBeenCalledWith({ packId: 'gyeonggi' })
+    expect(analytics.trackRegionSelected).toHaveBeenCalledTimes(1)
+    expect(analytics.trackRegionSelected).toHaveBeenCalledWith({
+      packId: 'gyeonggi',
+      regionId: 'gyeonggi:seongnam',
+      source: 'search',
+    })
+    expect(analytics.trackCourseStarted).toHaveBeenCalledTimes(1)
+    expect(analytics.trackCourseStarted).toHaveBeenCalledWith({
+      courseId: 'region:gyeonggi:seongnam',
+      targetRegionId: 'gyeonggi:seongnam',
+    })
+  })
+
+  it('채점 지역 문제의 답안을 한 번만 기록하고 정오답 햅틱을 보낸다', async () => {
+    await openSeongnamCourse()
+    await answerCurrentCourseQuestion(true)
+
+    expect(analytics.trackAnswerSubmitted).toHaveBeenCalledTimes(1)
+    expect(analytics.trackAnswerSubmitted).toHaveBeenCalledWith({
+      regionId: 'gyeonggi:seongnam',
+      questionType: 'recognition',
+      correct: true,
+      stageBefore: 0,
+    })
+    expect(analytics.triggerAnswerHaptic).toHaveBeenCalledTimes(1)
+    expect(analytics.triggerAnswerHaptic).toHaveBeenCalledWith(true)
+  })
+
+  it('지역 코스의 다섯 채점 문제가 끝날 때 완료 횟수를 한 번 기록한다', async () => {
+    await openSeongnamCourse()
+    for (let index = 0; index < 5; index += 1) await answerCurrentCourseQuestion(true)
+
+    expect(analytics.trackCourseCompleted).toHaveBeenCalledTimes(1)
+    expect(analytics.trackCourseCompleted).toHaveBeenCalledWith({
+      courseId: 'region:gyeonggi:seongnam',
+      scoredCount: 5,
+      correctCount: 5,
+    })
+  })
+
+  it('홈의 복습 안내는 만기 지역 수만 한 번 기록한다', async () => {
+    render(<App initialRecords={recordsWithDueReview('gyeonggi:seongnam')} />)
+
+    await waitFor(() => expect(analytics.trackReviewPromptShown).toHaveBeenCalledWith({ dueCount: 1 }))
+    expect(analytics.trackReviewPromptShown).toHaveBeenCalledTimes(1)
+  })
+
+  it('지역 선택 지도 초기 실패는 검증된 자산 버전으로 한 번만 기록한다', async () => {
+    vi.spyOn(geometry, 'loadGeometry').mockRejectedValueOnce(new Error('asset unavailable'))
+    render(<App initialRecords={emptyRecords()} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '새 지역 찾아보기' }))
+    await screen.findByRole('alert')
+
+    expect(analytics.trackMapLoadFailed).toHaveBeenCalledTimes(1)
+    expect(analytics.trackMapLoadFailed).toHaveBeenCalledWith({
+      packId: 'gyeonggi',
+      assetVersion: 'sgis-2025-q2-sigungu:2025-06-30',
+    })
+  })
+
   it('복습 대상이 있으면 홈의 첫 CTA가 오늘의 5문제다', () => {
     render(<App initialRecords={recordsWithDueReview('gyeonggi:seongnam')} />)
     const review = screen.getByRole('button', { name: '오늘의 5문제' })

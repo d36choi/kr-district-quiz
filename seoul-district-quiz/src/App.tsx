@@ -7,7 +7,19 @@ import './App.css'
 import { RegionPackMap } from './components/RegionPackMap'
 import { RegionPicker } from './components/RegionPicker'
 import { SeoulDistrictMap } from './components/SeoulDistrictMap'
+import {
+  trackAnswerSubmitted,
+  trackCourseCompleted,
+  trackCourseStarted,
+  trackMapLoadFailed,
+  trackRegionPackViewed,
+  trackRegionSelected,
+  trackReviewPromptShown,
+  triggerAnswerHaptic,
+  type RegionSelectionSource,
+} from './analytics/events'
 import { ALL_DISTRICT_NAMES, CHOICE_QUESTIONS, TEXT_QUESTIONS, createRegionalQuestion, shuffleDistricts, type Question } from './data/districts'
+import { REGION_MAP_ASSET_VERSIONS } from './data/mapAssets'
 import { getRegion, getTopLevelRegions, REGIONS_BY_ID, type RegionPackId } from './data/regions'
 import { buildConfirmationQuestions, buildCourse, type CoursePlan, type CourseQuestion } from './game/courseGenerator'
 import {
@@ -118,11 +130,12 @@ function ModeSelectionScreen({ onSelect, onBack }: { onSelect: (mode: GameMode) 
 }
 
 function AllDistrictsTypingScreen({
-  districts,
+  districts, onMapLoadFailed,
   onDistrictSolved,
   onComplete,
 }: {
   districts: string[]
+  onMapLoadFailed: (packId: RegionPackId) => void
   onDistrictSolved: (district: string) => void
   onComplete: (elapsedMs: number) => void
 }) {
@@ -196,7 +209,7 @@ function AllDistrictsTypingScreen({
         <h1>지도에 표시된<br />자치구를 입력해 주세요</h1>
       </section>
 
-      <SeoulDistrictMap activeDistrict={currentDistrict} result={null} solvedDistricts={solvedDistricts} interactive={false} variant="typing" onReady={handleMapReady} />
+      <SeoulDistrictMap activeDistrict={currentDistrict} result={null} solvedDistricts={solvedDistricts} interactive={false} variant="typing" onMapLoadFailed={onMapLoadFailed} onReady={handleMapReady} />
 
       <section className="typing-answer-stage">
         <label htmlFor="all-district-answer">자치구 이름</label>
@@ -392,12 +405,14 @@ function getCollectionMilestone(masteredCount: number) {
 function DistrictCollectionScreen({
   records,
   loadStatus,
+  onMapLoadFailed,
   onRetry,
   onStart,
   onBack,
 }: {
   records: PersonalRecordsV2
   loadStatus: 'loading' | 'ready' | 'error'
+  onMapLoadFailed: (packId: RegionPackId) => void
   onRetry: () => void
   onStart: () => void
   onBack: () => void
@@ -449,6 +464,7 @@ function DistrictCollectionScreen({
             selectedDistrict={selectedDistrict}
             variant="collection"
             onDistrictSelect={setSelectedDistrict}
+            onMapLoadFailed={onMapLoadFailed}
           />
 
           <section className={`district-detail ${selectedDistrict ? '' : 'district-detail--empty'}`} aria-live="polite">
@@ -547,6 +563,7 @@ function RegionPickerScreen({
   selectedRegionId,
   onPackChange,
   onRegionSelect,
+  onMapLoadFailed,
   onStart,
   onStartTyping,
   onBack,
@@ -554,7 +571,8 @@ function RegionPickerScreen({
   selectedPackId: RegionPackId
   selectedRegionId?: string
   onPackChange: (packId: RegionPackId) => void
-  onRegionSelect: (regionId: string) => void
+  onRegionSelect: (regionId: string, source: RegionSelectionSource) => void
+  onMapLoadFailed: (packId: RegionPackId) => void
   onStart: (regionId: string) => void
   onStartTyping: () => void
   onBack: () => void
@@ -570,6 +588,7 @@ function RegionPickerScreen({
       selectedRegionId={selectedRegionId}
       onPackChange={onPackChange}
       onRegionSelect={onRegionSelect}
+      onMapLoadFailed={onMapLoadFailed}
       onStart={onStart}
     />
     {selectedPackId === 'seoul' ? <button className="typing-entry-button" type="button" onClick={onStartTyping}>
@@ -583,7 +602,7 @@ function RegionPickerScreen({
 }
 
 function QuizScreen({
-  question, questionIndex, totalQuestions, hearts, xp, combo, result, onAnswer, onContinue,
+  question, questionIndex, totalQuestions, hearts, xp, combo, result, onAnswer, onContinue, onMapLoadFailed,
 }: {
   question: Question
   questionIndex: number
@@ -594,6 +613,7 @@ function QuizScreen({
   result: AnswerResult | null
   onAnswer: (answer: string, elapsedMs: number) => void
   onContinue: () => void
+  onMapLoadFailed: (packId: RegionPackId) => void
 }) {
   const [textAnswer, setTextAnswer] = useState('')
   const [selectedAnswer, setSelectedAnswer] = useState('')
@@ -692,9 +712,10 @@ function QuizScreen({
         interactive={isMapSelection && !result}
         variant={question.questionType === 'silhouette' ? 'silhouette' : 'quiz'}
         onRegionSelect={(regionId) => setSelectedAnswer(getRegion(regionId)?.name ?? '')}
+        onMapLoadFailed={onMapLoadFailed}
         showRegionList={isMapSelection}
         caption={isMapSelection && !result ? `${question.district}의 위치를 지도나 지역 목록에서 선택해 주세요.` : undefined}
-      /> : <SeoulDistrictMap activeDistrict={question.district} result={result} />}
+      /> : <SeoulDistrictMap activeDistrict={question.district} result={result} onMapLoadFailed={onMapLoadFailed} />}
 
       <section className="answer-stage">
         {question.mode === 'choice' && !isMapSelection ? (
@@ -897,6 +918,33 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
   const [typingDistricts, setTypingDistricts] = useState<string[]>([])
   const [typingElapsedMs, setTypingElapsedMs] = useState(0)
   const sessionSequence = useRef(0)
+  const viewedPackId = useRef<RegionPackId | undefined>(undefined)
+  const promptedDueCount = useRef<number | undefined>(undefined)
+  const dueCount = getDueRegionIds(records).length
+
+  const reportMapLoadFailure = useCallback((packId: RegionPackId) => {
+    trackMapLoadFailed({ packId, assetVersion: REGION_MAP_ASSET_VERSIONS[packId] })
+  }, [])
+
+  useEffect(() => {
+    if (screen !== 'region-picker') {
+      viewedPackId.current = undefined
+      return
+    }
+    if (viewedPackId.current === selectedPackId) return
+    viewedPackId.current = selectedPackId
+    trackRegionPackViewed({ packId: selectedPackId })
+  }, [screen, selectedPackId])
+
+  useEffect(() => {
+    if (screen !== 'home' || dueCount === 0) {
+      promptedDueCount.current = undefined
+      return
+    }
+    if (promptedDueCount.current === dueCount) return
+    promptedDueCount.current = dueCount
+    trackReviewPromptShown({ dueCount })
+  }, [dueCount, screen])
 
   const resetQuestionInteraction = (nextQuestions: Question[]) => {
     setQuestions(nextQuestions)
@@ -936,6 +984,10 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
     })
     setRecentTargetRegionId(targetRegionId)
     resetQuestionState(plan.scoredQuestions.map((question) => createRegionalQuestion(question)))
+    trackCourseStarted({
+      courseId: `region:${targetRegionId}`,
+      targetRegionId,
+    })
   }
 
   const answerQuestion = (answer: string, elapsedMs: number) => {
@@ -962,6 +1014,12 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
         scored: isScored,
       }
       if (isScored) {
+        trackAnswerSubmitted({
+          regionId: currentQuestion.regionId,
+          questionType: courseQuestion.questionType,
+          correct,
+          stageBefore: records.progressByRegion[currentQuestion.regionId]?.stage ?? 0,
+        })
         recordRegionAnswer({
           regionId: currentQuestion.regionId,
           correct,
@@ -986,6 +1044,7 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
     }
     if (isScored) setAnswerDurations((durations) => [...durations, elapsedMs])
     setResult({ correct, answer })
+    triggerAnswerHaptic(correct)
   }
 
   const continueQuiz = () => {
@@ -1007,6 +1066,13 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
 
     if (regionalSession) {
       if (sessionKind !== 'review') recordCourseCompleted(new Date())
+      if (sessionKind !== 'review') {
+        trackCourseCompleted({
+          courseId: `region:${regionalSession.plan.targetRegionId}`,
+          scoredCount: regionalSession.plan.scoredQuestions.length,
+          correctCount,
+        })
+      }
       setScreen('complete')
       setResult(null)
       return
@@ -1043,7 +1109,7 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
   return (
     <div className="app-shell" style={appStyle}>
       {screen === 'home' ? <HomeScreen records={records} dailyStreak={dailyStreak} loadStatus={loadStatus} recentTargetRegionId={recentTargetRegionId} onStartReview={startRegionalCourse} onBrowse={() => setScreen('region-picker')} onOpenCollection={() => setScreen('collection')} onOpenRecords={() => setScreen('records')} /> : null}
-      {screen === 'collection' ? <DistrictCollectionScreen records={records} loadStatus={loadStatus} onRetry={() => { void retryLoad() }} onStart={() => setScreen('mode')} onBack={() => setScreen('home')} /> : null}
+      {screen === 'collection' ? <DistrictCollectionScreen records={records} loadStatus={loadStatus} onMapLoadFailed={reportMapLoadFailure} onRetry={() => { void retryLoad() }} onStart={() => setScreen('mode')} onBack={() => setScreen('home')} /> : null}
       {screen === 'records' ? <RecordsDashboardScreen records={records} loadStatus={loadStatus} onRetry={() => { void retryLoad() }} onStart={() => setScreen('mode')} onBack={() => setScreen('home')} /> : null}
       {screen === 'region-picker' ? <RegionPickerScreen
         selectedPackId={selectedPackId}
@@ -1052,7 +1118,13 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
           setSelectedPackId(packId)
           setSelectedRegionId(undefined)
         }}
-        onRegionSelect={setSelectedRegionId}
+        onRegionSelect={(regionId, source) => {
+          const region = getRegion(regionId)
+          if (!region) return
+          setSelectedRegionId(regionId)
+          trackRegionSelected({ packId: region.packId, regionId, source })
+        }}
+        onMapLoadFailed={reportMapLoadFailure}
         onStart={startRegionalCourse}
         onStartTyping={startAllDistrictsTyping}
         onBack={() => setScreen('home')}
@@ -1065,7 +1137,7 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
         resetLegacySession(QUESTIONS_BY_MODE[mode], mode)
       }} onBack={() => setScreen('home')} /> : null}
       {screen === 'course' && questions[questionIndex] ? (
-        <QuizScreen key={`${questions[questionIndex].regionId ?? questions[questionIndex].district}:${questionIndex}`} question={questions[questionIndex]} questionIndex={questionIndex} totalQuestions={questions.length} hearts={hearts} xp={xp} combo={combo} result={result} onAnswer={answerQuestion} onContinue={continueQuiz} />
+        <QuizScreen key={`${questions[questionIndex].regionId ?? questions[questionIndex].district}:${questionIndex}`} question={questions[questionIndex]} questionIndex={questionIndex} totalQuestions={questions.length} hearts={hearts} xp={xp} combo={combo} result={result} onAnswer={answerQuestion} onContinue={continueQuiz} onMapLoadFailed={reportMapLoadFailure} />
       ) : null}
       {screen === 'complete' && regionalSession ? <RegionalCompleteScreen
         targetRegionId={regionalSession.plan.targetRegionId}
@@ -1090,7 +1162,7 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
         <CompleteScreen mode={selectedMode} xp={xp} correctCount={correctCount} totalQuestions={questions.length} answerDurations={answerDurations} wrongQuestions={wrongQuestions} records={records} saveFailed={saveFailed} onRestart={() => resetLegacySession(QUESTIONS_BY_MODE[selectedMode])} onReview={() => resetLegacySession(wrongQuestions, selectedMode, 'review')} onChangeMode={() => setScreen('mode')} />
       ) : null}
       {screen === 'typing' && typingDistricts.length === 25 ? (
-        <AllDistrictsTypingScreen districts={typingDistricts} onDistrictSolved={(district) => {
+        <AllDistrictsTypingScreen districts={typingDistricts} onMapLoadFailed={reportMapLoadFailure} onDistrictSolved={(district) => {
           updateRecords((currentRecords) => recordMasteredDistrict(currentRecords, district))
         }} onComplete={(elapsedMs) => {
           setTypingElapsedMs(elapsedMs)

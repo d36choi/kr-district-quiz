@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import type { RegionSelectionSource } from '../analytics/events'
 import { DISTRICT_NAME_BY_MAP_ID } from '../data/districts'
 import type { GeometryPath } from '../data/geometry'
 import { getRegion, getTopLevelRegions, REGION_PACKS, REGIONS_BY_ID, type Region, type RegionPackId } from '../data/regions'
@@ -21,7 +22,8 @@ export type RegionPackMapProps = {
   adjacentRegionIds?: readonly string[]
   result?: RegionAnswerResult | null
   interactive?: boolean
-  onRegionSelect?: (regionId: string) => void
+  onRegionSelect?: (regionId: string, source: RegionSelectionSource) => void
+  onMapLoadFailed?: (packId: RegionPackId) => void
   onReady?: () => void
   variant?: 'quiz' | 'typing' | 'collection' | 'picker' | 'silhouette'
   /** Picker supplies its own always-visible search/list. */
@@ -77,7 +79,7 @@ function normalizedSearch(value: string) {
 export function RegionNameList({ regions, selectedRegionId, onRegionSelect, showCourseBadges = false }: {
   regions: readonly Region[]
   selectedRegionId?: string
-  onRegionSelect: (regionId: string) => void
+  onRegionSelect: (regionId: string, source: RegionSelectionSource) => void
   showCourseBadges?: boolean
 }) {
   const inputId = useId()
@@ -92,7 +94,7 @@ export function RegionNameList({ regions, selectedRegionId, onRegionSelect, show
     {filtered.length === 0 ? <p className="region-name-list__empty">검색한 지역이 없어요. 다른 이름을 입력해 주세요.</p> : null}
     <ul aria-label="지역 목록">
       {filtered.map((region) => <li key={region.id}>
-        <button type="button" className="region-list-button" aria-pressed={region.id === selectedRegionId} onClick={() => onRegionSelect(region.id)}>
+        <button type="button" className="region-list-button" aria-pressed={region.id === selectedRegionId} onClick={() => onRegionSelect(region.id, query ? 'search' : 'list')}>
           <span>{region.name}</span>
           {showCourseBadges && DETAILED_PARENTS.has(region.id) ? <span className="region-course-badge">세부 코스</span> : null}
           {region.id === selectedRegionId ? <span className="region-list-button__selected">선택됨</span> : null}
@@ -112,7 +114,7 @@ function ScopedRegionMap(props: RegionPackMapProps & { parentRegionId?: string }
   const {
     packId, parentRegionId, activeRegionId, selectedRegionId: controlledSelection,
     solvedRegionIds = EMPTY_IDS, adjacentRegionIds = EMPTY_IDS, result,
-    interactive = true, onRegionSelect, onReady, variant = 'quiz', showRegionList = true, caption: customCaption,
+    interactive = true, onRegionSelect, onMapLoadFailed, onReady, variant = 'quiz', showRegionList = true, caption: customCaption,
   } = props
   const captionId = useId()
   const [internalSelection, setInternalSelection] = useState<string>()
@@ -120,6 +122,7 @@ function ScopedRegionMap(props: RegionPackMapProps & { parentRegionId?: string }
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [listOpen, setListOpen] = useState(false)
   const pathNodes = useRef(new Map<string, SVGPathElement>())
+  const onMapLoadFailedRef = useRef(onMapLoadFailed)
   // An explicitly undefined controlled value means the parent cleared selection.
   const isSelectionControlled = Object.prototype.hasOwnProperty.call(props, 'selectedRegionId')
   const selectedRegionId = isSelectionControlled ? controlledSelection : internalSelection
@@ -133,10 +136,18 @@ function ScopedRegionMap(props: RegionPackMapProps & { parentRegionId?: string }
   const mapLabel = parentRegionId ? `${parent?.name ?? '지역'} 세부 구 지도` : packId === 'seoul' ? '서울 25개 자치구 지도' : '경기 31개 시·군 지도'
 
   useEffect(() => {
+    onMapLoadFailedRef.current = onMapLoadFailed
+  }, [onMapLoadFailed])
+
+  useEffect(() => {
     let current = true
     loadMap(packId, Boolean(parentRegionId))
       .then((data) => { if (current) setLoadState({ status: 'ready', data }) })
-      .catch(() => { if (current) setLoadState({ status: 'error' }) })
+      .catch(() => {
+        if (!current) return
+        setLoadState({ status: 'error' })
+        onMapLoadFailedRef.current?.(packId)
+      })
     return () => { current = false }
   }, [packId, parentRegionId, loadAttempt])
 
@@ -144,9 +155,9 @@ function ScopedRegionMap(props: RegionPackMapProps & { parentRegionId?: string }
     if (loadState.status === 'ready') onReady?.()
   }, [loadState.status, onReady])
 
-  const selectRegion = (id: string) => {
+  const selectRegion = (id: string, source: RegionSelectionSource) => {
     if (!isSelectionControlled) setInternalSelection(id)
-    onRegionSelect?.(id)
+    onRegionSelect?.(id, source)
   }
   const retry = () => {
     if (packId === 'seoul') seoulMapPromise = undefined
@@ -197,11 +208,11 @@ function ScopedRegionMap(props: RegionPackMapProps & { parentRegionId?: string }
               className={['district', isAdjacent ? 'district--adjacent' : '', isSolved && !isActive ? 'district--solved' : '', isActive ? `district--${resultState}` : '', isSelected ? 'district--selected' : ''].filter(Boolean).join(' ')}
               role={interactive ? 'button' : undefined} tabIndex={interactive ? 0 : undefined}
               aria-current={isActive ? 'true' : undefined} aria-label={[region.name, ...stateNames].join(', ')} aria-pressed={interactive ? isSelected : undefined}
-              onClick={interactive ? () => selectRegion(region.regionId) : undefined}
+              onClick={interactive ? () => selectRegion(region.regionId, 'map') : undefined}
               onKeyDown={interactive ? (event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault()
-                  selectRegion(region.regionId)
+                  selectRegion(region.regionId, 'map')
                 }
               } : undefined}>
               <path className="district-hitarea" d={region.path} />
