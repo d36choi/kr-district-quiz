@@ -15,6 +15,7 @@ import {
   trackRegionPackViewed,
   trackRegionSelected,
   trackReviewPromptShown,
+  trackReviewSessionCompleted,
   triggerAnswerHaptic,
   type RegionSelectionSource,
 } from './analytics/events'
@@ -45,6 +46,8 @@ type RegionalSession = {
   startingStage: ProgressStage
   wrongQuestions: CourseQuestion[]
   confirmationAdded: boolean
+  origin: 'browse' | 'due-review'
+  stageUpCount: number
 }
 
 const STAGE_LABELS: readonly string[] = ['처음 봄', '익히는 중', '익숙해지는 중', '익숙함', '잘 알고 있음']
@@ -970,7 +973,7 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
     resetQuestionState(nextQuestions)
   }
 
-  const startRegionalCourse = (targetRegionId: string) => {
+  const startRegionalCourse = (targetRegionId: string, origin: RegionalSession['origin'] = 'browse') => {
     const plan = buildCourse(targetRegionId, records.progressByRegion, new Date(), Math.random)
     sessionSequence.current += 1
     setSelectedMode('choice')
@@ -981,6 +984,8 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
       startingStage: records.progressByRegion[targetRegionId]?.stage ?? 0,
       wrongQuestions: [],
       confirmationAdded: false,
+      origin,
+      stageUpCount: 0,
     })
     setRecentTargetRegionId(targetRegionId)
     resetQuestionState(plan.scoredQuestions.map((question) => createRegionalQuestion(question)))
@@ -1014,13 +1019,7 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
         scored: isScored,
       }
       if (isScored) {
-        trackAnswerSubmitted({
-          regionId: currentQuestion.regionId,
-          questionType: courseQuestion.questionType,
-          correct,
-          stageBefore: records.progressByRegion[currentQuestion.regionId]?.stage ?? 0,
-        })
-        recordRegionAnswer({
+        const transition = recordRegionAnswer({
           regionId: currentQuestion.regionId,
           correct,
           answeredAt: new Date(),
@@ -1028,12 +1027,17 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
           sessionId: regionalSession.sessionId,
           courseId: `region:${regionalSession.plan.targetRegionId}`,
         })
-        if (!correct) {
-          setRegionalSession((session) => session ? {
-            ...session,
-            wrongQuestions: [...session.wrongQuestions, courseQuestion],
-          } : session)
-        }
+        trackAnswerSubmitted({
+          regionId: currentQuestion.regionId,
+          questionType: courseQuestion.questionType,
+          correct,
+          stageBefore: transition?.stageBefore ?? 0,
+        })
+        setRegionalSession((session) => session ? {
+          ...session,
+          stageUpCount: session.stageUpCount + (transition && transition.stageAfter > transition.stageBefore ? 1 : 0),
+          wrongQuestions: correct ? session.wrongQuestions : [...session.wrongQuestions, courseQuestion],
+        } : session)
       }
     } else {
       updateRecords((currentRecords) => recordAnswer(currentRecords, {
@@ -1072,6 +1076,13 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
           scoredCount: regionalSession.plan.scoredQuestions.length,
           correctCount,
         })
+        if (regionalSession.origin === 'due-review') {
+          trackReviewSessionCompleted({
+            scoredCount: regionalSession.plan.scoredQuestions.length,
+            correctCount,
+            stageUpCount: regionalSession.stageUpCount,
+          })
+        }
       }
       setScreen('complete')
       setResult(null)
@@ -1108,7 +1119,7 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
 
   return (
     <div className="app-shell" style={appStyle}>
-      {screen === 'home' ? <HomeScreen records={records} dailyStreak={dailyStreak} loadStatus={loadStatus} recentTargetRegionId={recentTargetRegionId} onStartReview={startRegionalCourse} onBrowse={() => setScreen('region-picker')} onOpenCollection={() => setScreen('collection')} onOpenRecords={() => setScreen('records')} /> : null}
+      {screen === 'home' ? <HomeScreen records={records} dailyStreak={dailyStreak} loadStatus={loadStatus} recentTargetRegionId={recentTargetRegionId} onStartReview={(regionId) => startRegionalCourse(regionId, 'due-review')} onBrowse={() => setScreen('region-picker')} onOpenCollection={() => setScreen('collection')} onOpenRecords={() => setScreen('records')} /> : null}
       {screen === 'collection' ? <DistrictCollectionScreen records={records} loadStatus={loadStatus} onMapLoadFailed={reportMapLoadFailure} onRetry={() => { void retryLoad() }} onStart={() => setScreen('mode')} onBack={() => setScreen('home')} /> : null}
       {screen === 'records' ? <RecordsDashboardScreen records={records} loadStatus={loadStatus} onRetry={() => { void retryLoad() }} onStart={() => setScreen('mode')} onBack={() => setScreen('home')} /> : null}
       {screen === 'region-picker' ? <RegionPickerScreen

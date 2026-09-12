@@ -2,10 +2,12 @@
 // @vitest-environment jsdom
 
 import { readFileSync } from 'node:fs'
+import { StrictMode } from 'react'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import * as geometry from './data/geometry'
+import { REGIONS_BY_ID } from './data/regions'
 import { createEmptyPersonalRecords, type PersonalRecordsV2 } from './game/personalRecords'
 import { createRegionProgress } from './game/progress'
 
@@ -134,6 +136,69 @@ afterEach(() => {
 })
 
 describe('regional learning app flow', () => {
+  it('오늘의 5문제는 실제 승급만 집계하고 확인 문제와 재방문은 복습 완료를 중복 기록하지 않는다', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-12T00:00:00.000Z'))
+    const records = emptyRecords()
+    for (const region of Object.values(REGIONS_BY_ID)) {
+      if (region.parentId === null) continue
+      records.progressByRegion[region.id] = {
+        ...createRegionProgress(region.id),
+        stage: region.id === 'gyeonggi:seongnam' ? 1 : 2,
+        attempts: 2,
+        correctAnswers: 2,
+        lastAnsweredAt: '2026-09-01T00:00:00.000Z',
+        nextReviewAt: region.id === 'gyeonggi:seongnam'
+          ? '2026-09-02T00:00:00.000Z'
+          : '2026-09-20T00:00:00.000Z',
+        // Legacy stage 2 requires a session baseline, so a correct answer
+        // does not promote it. Only the stage 1 target should advance.
+      }
+    }
+    render(<StrictMode><App initialRecords={records} /></StrictMode>)
+    expect(analytics.trackReviewPromptShown).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: '오늘의 5문제' }))
+    const mapList = await screen.findByRole('list', { name: '지역 목록' })
+    fireEvent.click(within(mapList).getByRole('button', { name: '성남시' }))
+    fireEvent.click(screen.getByRole('button', { name: '정답 확인' }))
+    fireEvent.click(screen.getByRole('button', { name: '계속하기' }))
+    for (let index = 1; index < 5; index += 1) await answerCurrentCourseQuestion(index !== 1)
+    expect(analytics.trackAnswerSubmitted).toHaveBeenCalledTimes(5)
+    expect(analytics.trackAnswerSubmitted.mock.calls[0][0]).toEqual({
+      regionId: 'gyeonggi:seongnam', questionType: 'map-selection', correct: true, stageBefore: 1,
+    })
+    expect(new Set(analytics.trackAnswerSubmitted.mock.calls.map(([answer]) => answer.regionId)).size).toBe(5)
+    expect(screen.getByText('확인 문제')).toBeTruthy()
+    await answerCurrentCourseQuestion(true)
+    expect(analytics.trackCourseCompleted).toHaveBeenCalledExactlyOnceWith({
+      courseId: 'region:gyeonggi:seongnam', scoredCount: 5, correctCount: 4,
+    })
+    expect(analytics.trackReviewSessionCompleted).toHaveBeenCalledExactlyOnceWith({
+      scoredCount: 5, correctCount: 4, stageUpCount: 1,
+    })
+    fireEvent.click(screen.getByRole('button', { name: '오답만 복습 (1)' }))
+    await answerCurrentCourseQuestion(true)
+    fireEvent.click(screen.getByRole('button', { name: '오늘 학습 마치기' }))
+    expect(analytics.trackAnswerSubmitted).toHaveBeenCalledTimes(5)
+    expect(analytics.trackCourseCompleted).toHaveBeenCalledTimes(1)
+    expect(analytics.trackReviewSessionCompleted).toHaveBeenCalledTimes(1)
+  })
+
+  it('StrictMode에서 팩 조회는 실제 팩 전환과 선택 화면 재방문마다 한 번씩 기록한다', async () => {
+    render(<StrictMode><App initialRecords={emptyRecords()} /></StrictMode>)
+    fireEvent.click(screen.getByRole('button', { name: '새 지역 찾아보기' }))
+    fireEvent.click(screen.getByRole('tab', { name: '경기' }))
+    fireEvent.change(screen.getByRole('searchbox', { name: '지역명 검색' }), { target: { value: '성남' } })
+    fireEvent.click(screen.getByRole('tab', { name: '서울' }))
+    fireEvent.click(screen.getByRole('tab', { name: '경기' }))
+    fireEvent.click(screen.getByRole('button', { name: '홈으로 돌아가기' }))
+    fireEvent.click(screen.getByRole('button', { name: '새 지역 찾아보기' }))
+    expect(analytics.trackRegionPackViewed.mock.calls).toEqual([
+      [{ packId: 'gyeonggi' }], [{ packId: 'seoul' }], [{ packId: 'gyeonggi' }], [{ packId: 'gyeonggi' }],
+    ])
+    await screen.findByRole('searchbox', { name: '지역명 검색' })
+  })
+
   it('지역 선택 화면은 현재 팩 조회, 검색 선택, 코스 시작을 각각 한 번 기록한다', async () => {
     render(<App initialRecords={emptyRecords()} />)
 
@@ -183,6 +248,7 @@ describe('regional learning app flow', () => {
       scoredCount: 5,
       correctCount: 5,
     })
+    expect(analytics.trackReviewSessionCompleted).not.toHaveBeenCalled()
   })
 
   it('홈의 복습 안내는 만기 지역 수만 한 번 기록한다', async () => {

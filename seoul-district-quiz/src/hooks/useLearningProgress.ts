@@ -6,7 +6,7 @@ import {
   type RegionAnswerResult,
   type PersonalRecordsV2,
 } from '../game/personalRecords'
-import type { ReviewDate } from '../game/progress'
+import type { ProgressStage, ReviewDate } from '../game/progress'
 import { usePersonalRecords } from './usePersonalRecords'
 
 export function useLearningProgress(initialRecords?: PersonalRecordsV2) {
@@ -14,7 +14,19 @@ export function useLearningProgress(initialRecords?: PersonalRecordsV2) {
   const { updateRecords } = personalRecords
 
   const recordAnswer = useCallback((result: RegionAnswerResult) => {
-    updateRecords((records) => recordRegionAnswer(records, result))
+    let transition: { stageBefore: ProgressStage; stageAfter: ProgressStage } | undefined
+    updateRecords((records) => {
+      const nextRecords = recordRegionAnswer(records, result)
+      const progress = nextRecords.progressByRegion[result.regionId]
+      if (progress) transition = {
+        stageBefore: records.progressByRegion[result.regionId]?.stage ?? 0,
+        stageAfter: progress.stage,
+      }
+      return nextRecords
+    })
+    // updateRecords applies synchronously to its latest snapshot. Returning the
+    // transition keeps analytics based on the actual persisted reducer rules.
+    return transition
   }, [updateRecords])
 
   const completeCourse = useCallback((completedAt: ReviewDate = new Date()) => {

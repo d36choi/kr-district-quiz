@@ -175,6 +175,47 @@ describe('regional analytics payload contract', () => {
 })
 
 describe('non-blocking SDK boundary', () => {
+  const validPayloads = [
+    { track: trackRegionPackViewed, payload: { packId: 'gyeonggi' }, invalid: { packId: ['unknown', {}, null] } },
+    { track: trackRegionSelected, payload: { packId: 'gyeonggi', regionId: 'gyeonggi:seongnam', source: 'map' }, invalid: {
+      packId: ['seoul', 'unknown'], regionId: ['unknown', 'seoul:mapo', {}, 'gyeonggi:성남시 주소'], source: ['typed search text', {}, null],
+    } },
+    { track: trackCourseStarted, payload: { courseId: 'region:gyeonggi:seongnam', targetRegionId: 'gyeonggi:seongnam' }, invalid: {
+      courseId: ['free form address', 'region:unknown', 'region:seoul:mapo', {}, 'region:gyeonggi:seongnam:free-text'],
+      targetRegionId: ['free text', 'seoul:mapo', {}, null],
+    } },
+    { track: trackAnswerSubmitted, payload: { regionId: 'gyeonggi:seongnam', questionType: 'recognition', correct: true, stageBefore: 1 }, invalid: {
+      regionId: ['unknown', {}, null], questionType: ['arbitrary question text', {}, null], correct: ['yes', 1, {}, null], stageBefore: [-1, 5, 0.5, NaN, Infinity, '1'],
+    } },
+    { track: trackCourseCompleted, payload: { courseId: 'region:gyeonggi:seongnam', scoredCount: 5, correctCount: 4 }, invalid: {
+      courseId: ['free text', 'region:unknown', {}, null], scoredCount: [-1, NaN, Infinity, 1.5, '5', {}], correctCount: [-1, NaN, Infinity, 1.5, '4', 6],
+    } },
+    { track: trackReviewPromptShown, payload: { dueCount: 1 }, invalid: { dueCount: [-1, NaN, Infinity, 0.5, '1', {}, null] } },
+    { track: trackReviewSessionCompleted, payload: { scoredCount: 5, correctCount: 4, stageUpCount: 1 }, invalid: {
+      scoredCount: [-1, NaN, Infinity, 1.5, '5'], correctCount: [-1, NaN, Infinity, 0.5, '4', 6], stageUpCount: [-1, NaN, Infinity, 0.5, '1', {}, 5],
+    } },
+    { track: trackMapLoadFailed, payload: { packId: 'gyeonggi', assetVersion: 'sgis-2025-q2-sigungu:2025-06-30' }, invalid: {
+      packId: ['seoul', 'unknown', {}], assetVersion: ['unknown', 'kurykh-seoul-district:cc-by-sa-3.0', {}, null],
+    } },
+  ]
+
+  it.each(validPayloads)('$track.name rejects invalid values inside its allowed payload fields without calling the SDK', ({ track, payload, invalid }) => {
+    for (const [field, values] of Object.entries(invalid)) {
+      for (const value of values!) {
+        expect(() => track({ ...payload, [field]: value } as never)).not.toThrow()
+        expect(sdk.screen).not.toHaveBeenCalled()
+        expect(sdk.click).not.toHaveBeenCalled()
+        expect(sdk.log).not.toHaveBeenCalled()
+      }
+    }
+    for (const malformed of [null, undefined, 'address', [], {}]) {
+      expect(() => track(malformed as never)).not.toThrow()
+    }
+    expect(sdk.screen).not.toHaveBeenCalled()
+    expect(sdk.click).not.toHaveBeenCalled()
+    expect(sdk.log).not.toHaveBeenCalled()
+  })
+
   it('swallows synchronous and asynchronous analytics failures', async () => {
     sdk.screen.mockImplementationOnce(() => { throw new Error('sync failure') })
     sdk.log.mockRejectedValueOnce(new Error('async failure'))
