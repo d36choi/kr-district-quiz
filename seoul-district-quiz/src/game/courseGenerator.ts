@@ -85,10 +85,11 @@ function fillFromLowStage(
   selectedRegionIds: Set<string>,
   progressByRegion: ProgressByRegion,
   random: Random,
+  candidates: readonly Region[],
   deferredRegionIds: ReadonlySet<string> = new Set(),
 ): Region[] {
   if (selected.length >= count) return selected
-  const fallback = orderByStage(ELIGIBLE_REGIONS, progressByRegion, random)
+  const fallback = orderByStage(candidates, progressByRegion, random)
   const preferredFallback = fallback.filter((region) => !deferredRegionIds.has(region.id))
   const filled = [
     ...selected,
@@ -123,10 +124,11 @@ function orderReviewCandidates(
   progressByRegion: ProgressByRegion,
   now: ReviewDate,
   random: Random,
+  candidates: readonly Region[],
 ): Region[] {
   const groups = new Map<string, Region[]>()
 
-  for (const region of ELIGIBLE_REGIONS) {
+  for (const region of candidates) {
     const progress = progressByRegion[region.id]
     if (!progress || !isReviewDue(progress, now) || !progress.nextReviewAt) continue
     const priority = `${new Date(progress.nextReviewAt).getTime()}:${progress.stage}`
@@ -142,6 +144,31 @@ function orderReviewCandidates(
     .flatMap(([, tiedRegions]) => shuffle(tiedRegions, random))
 }
 
+function uniqueRegions(regions: readonly Region[]): Region[] {
+  return [...new Map(regions.map((region) => [region.id, region])).values()]
+}
+
+function learningScopeFor(target: Region): Region[] {
+  const samePackRegions = ELIGIBLE_REGIONS.filter((region) => region.packId === target.packId)
+  const children = samePackRegions.filter((region) => region.parentId === target.id)
+  const directNeighbors = getNeighbors(target.id)
+    .flatMap((regionId) => getRegion(regionId) ?? [])
+    .filter((region) => region.packId === target.packId)
+  const scope = uniqueRegions([target, ...children, ...directNeighbors])
+  if (scope.length >= 5) return scope
+
+  const secondDegreeNeighbors = directNeighbors.flatMap((neighbor) => (
+    getNeighbors(neighbor.id)
+      .flatMap((regionId) => getRegion(regionId) ?? [])
+      .filter((region) => region.packId === target.packId)
+  ))
+  const extendedScope = uniqueRegions([...scope, ...secondDegreeNeighbors])
+  if (extendedScope.length >= 5) return extendedScope
+
+  const siblings = samePackRegions.filter((region) => region.parentId === target.parentId)
+  return uniqueRegions([...extendedScope, ...siblings, ...samePackRegions])
+}
+
 export function buildCourse(
   targetRegionId: string,
   progressByRegion: ProgressByRegion,
@@ -152,11 +179,12 @@ export function buildCourse(
   if (!target) throw new RangeError(`Unknown target region: ${targetRegionId}`)
 
   const selectedRegionIds = new Set<string>()
-  const children = ELIGIBLE_REGIONS.filter((region) => region.parentId === targetRegionId)
+  const learningScope = learningScopeFor(target)
+  const children = learningScope.filter((region) => region.parentId === targetRegionId)
   const neighbors = getNeighbors(targetRegionId)
-    .map((regionId) => getRegion(regionId))
-    .filter((region): region is Region => Boolean(region))
-  const reviewCandidates = orderReviewCandidates(progressByRegion, now, random)
+    .flatMap((regionId) => getRegion(regionId) ?? [])
+    .filter((region) => region.packId === target.packId)
+  const reviewCandidates = orderReviewCandidates(progressByRegion, now, random, learningScope)
   const neighborAndReviewIds = new Set([
     ...neighbors.map((region) => region.id),
     ...reviewCandidates.map((region) => region.id),
@@ -172,6 +200,7 @@ export function buildCourse(
     selectedRegionIds,
     progressByRegion,
     random,
+    learningScope,
     neighborAndReviewIds,
   )
 
@@ -186,6 +215,7 @@ export function buildCourse(
     selectedRegionIds,
     progressByRegion,
     random,
+    learningScope,
     new Set(reviewCandidates.map((region) => region.id)),
   )
 
@@ -200,6 +230,7 @@ export function buildCourse(
     selectedRegionIds,
     progressByRegion,
     random,
+    learningScope,
   )
 
   return Object.freeze({

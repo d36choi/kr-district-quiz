@@ -71,7 +71,7 @@ describe('course generation', () => {
     expect(new Set(plan.scoredQuestions.map((question) => question.regionId)).size).toBe(5)
   })
 
-  it('서울 관심 지역의 실제 인접 후보에서 경기 지역을 우선 출제할 수 있다', () => {
+  it('서울 관심 지역의 코스에 경기도 지역을 섞지 않는다', () => {
     const progressByRegion = Object.fromEntries(
       getNeighbors('seoul:songpa').map((regionId) => [
         regionId,
@@ -80,12 +80,18 @@ describe('course generation', () => {
     )
 
     const plan = buildCourse('seoul:songpa', progressByRegion, now, () => 0.42)
-    const neighborIds = plan.scoredQuestions
-      .filter((question) => question.bucket === 'neighbor')
-      .map((question) => question.regionId)
+    expect(plan.scoredQuestions.every((question) => question.regionId.startsWith('seoul:'))).toBe(true)
+  })
 
-    expect(neighborIds.every((regionId) => getNeighbors('seoul:songpa').includes(regionId))).toBe(true)
-    expect(neighborIds.some((regionId) => regionId.startsWith('gyeonggi:'))).toBe(true)
+  it('종로구 코스는 종로구와 서울 내 직접 인접 지역만 출제한다', () => {
+    const plan = buildCourse('seoul:jongno', emptyProgress(), now, () => 0.42)
+    const relevantRegionIds = new Set([
+      'seoul:jongno',
+      ...getNeighbors('seoul:jongno').filter((regionId) => regionId.startsWith('seoul:')),
+    ])
+
+    expect(plan.scoredQuestions).toHaveLength(5)
+    expect(plan.scoredQuestions.every((question) => relevantRegionIds.has(question.regionId))).toBe(true)
   })
 
   it('인접 후보와 복습 후보가 겹쳐도 같은 지역을 두 번 출제하지 않는다', () => {
@@ -112,42 +118,48 @@ describe('course generation', () => {
     expect(new Set(neighborIds).size).toBe(2)
   })
 
-  it('복습은 단계보다 예정일이 오래 지난 지역을 먼저 고른다', () => {
+  it('학습 범위 안에서 단계보다 복습 예정일이 오래 지난 지역을 먼저 고른다', () => {
     const progressByRegion = {
-      'seoul:mapo': progressAt('seoul:mapo', 4, '2026-09-01T00:00:00.000Z'),
-      'seoul:yongsan': progressAt('seoul:yongsan', 1, '2026-09-02T00:00:00.000Z'),
+      'gyeonggi:gwangju': progressAt('gyeonggi:gwangju', 4, '2026-09-01T00:00:00.000Z'),
+      'gyeonggi:yongin': progressAt('gyeonggi:yongin', 1, '2026-09-02T00:00:00.000Z'),
     }
 
     const plan = buildCourse('gyeonggi:seongnam', progressByRegion, now, () => 0.99)
     const review = plan.scoredQuestions.find((question) => question.bucket === 'review')
 
-    expect(review?.regionId).toBe('seoul:mapo')
+    expect(review?.regionId).toBe('gyeonggi:gwangju')
   })
 
-  it('복습 예정일이 같으면 단계가 낮은 지역을 먼저 고른다', () => {
+  it('학습 범위 안에서 복습 예정일이 같으면 단계가 낮은 지역을 먼저 고른다', () => {
     const dueAt = '2026-09-01T00:00:00.000Z'
     const progressByRegion = {
-      'seoul:mapo': progressAt('seoul:mapo', 3, dueAt),
-      'seoul:yongsan': progressAt('seoul:yongsan', 1, dueAt),
+      'gyeonggi:gwangju': progressAt('gyeonggi:gwangju', 3, dueAt),
+      'gyeonggi:yongin': progressAt('gyeonggi:yongin', 1, dueAt),
     }
 
     const plan = buildCourse('gyeonggi:seongnam', progressByRegion, now, () => 0)
     const review = plan.scoredQuestions.find((question) => question.bucket === 'review')
 
-    expect(review?.regionId).toBe('seoul:yongsan')
+    expect(review?.regionId).toBe('gyeonggi:yongin')
   })
 
-  it('복습할 지역이 없으면 가장 낮은 단계 지역을 복습 버킷에 넣는다', () => {
+  it('복습할 지역이 없으면 학습 범위의 가장 낮은 단계 지역을 복습 버킷에 넣는다', () => {
+    const lowStageRegionIds = new Set([
+      'gyeonggi:gwacheon',
+      'gyeonggi:gwangju',
+      'gyeonggi:yongin',
+    ])
     const progressByRegion = Object.fromEntries(
       Object.values(REGIONS_BY_ID)
         .filter((region) => region.parentId !== null)
-        .map((region) => [region.id, progressAt(region.id, region.id === 'seoul:mapo' ? 0 : 4)]),
+        .map((region) => [region.id, progressAt(region.id, lowStageRegionIds.has(region.id) ? 0 : 4)]),
     )
 
     const plan = buildCourse('gyeonggi:seongnam', progressByRegion, now, () => 0.42)
     const review = plan.scoredQuestions.find((question) => question.bucket === 'review')
 
-    expect(review?.regionId).toBe('seoul:mapo')
+    expect(review?.regionId.startsWith('gyeonggi:')).toBe(true)
+    expect(lowStageRegionIds.has(review?.regionId ?? '')).toBe(true)
   })
 
   it.each([

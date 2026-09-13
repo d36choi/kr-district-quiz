@@ -1,6 +1,7 @@
 import { getNeighbors } from './adjacency'
 import { getRegion, getTopLevelRegions, REGIONS_BY_ID } from './regions'
 import type { CourseBucket, CourseQuestion, CourseQuestionType } from '../game/courseGenerator'
+import { appendJosa } from '../utils/korean'
 
 export type Question = {
   district: string
@@ -94,9 +95,13 @@ function regionHint(regionId: string) {
   const neighborNames = getNeighbors(regionId)
     .slice(0, 2)
     .flatMap((id) => getRegion(id)?.name ?? [])
-  if (neighborNames.length > 0) return `${region.name}은 ${neighborNames.join('·')}와 경계를 맞대고 있어요.`
+  if (neighborNames.length > 0) {
+    return `${appendJosa(region.name, '은', '는')} ${appendJosa(neighborNames.join('·'), '과', '와')} 경계를 맞대고 있어요.`
+  }
   const parent = getRegion(region.parentId ?? '')
-  return parent ? `${region.name}은 ${parent.name} 안에 있어요.` : '지도에서 지역의 위치를 다시 확인해 보세요.'
+  return parent
+    ? `${appendJosa(region.name, '은', '는')} ${parent.name} 안에 있어요.`
+    : '지도에서 지역의 위치를 다시 확인해 보세요.'
 }
 
 export function createRegionalQuestion(question: CourseQuestion, random = Math.random): Question {

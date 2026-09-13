@@ -1,7 +1,7 @@
 import { SafeAreaInsets } from '@apps-in-toss/web-framework'
 import { useGSAP } from '@gsap/react'
 import gsap from 'gsap'
-import { Check, CheckCircle2, Clock3, Flame, Heart, Keyboard, ListChecks, MapPin, MapPinned, PenLine, Sparkles, Timer, Trophy } from 'lucide-react'
+import { Check, CheckCircle2, Clock3, Flame, Heart, Keyboard, ListChecks, MapPin, PenLine, Timer, Trophy } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react'
 import './App.css'
 import { RegionPackMap } from './components/RegionPackMap'
@@ -33,6 +33,8 @@ import {
 } from './game/personalRecords'
 import { isReviewDue, type ProgressStage } from './game/progress'
 import { useLearningProgress } from './hooks/useLearningProgress'
+import { useCompletionCelebration } from './hooks/useCompletionCelebration'
+import { appendJosa } from './utils/korean'
 
 gsap.registerPlugin(useGSAP)
 
@@ -246,17 +248,19 @@ function AllDistrictsTypingScreen({
 }
 
 function AllDistrictsCompleteScreen({ elapsedMs, onRestart, onChangeMode }: { elapsedMs: number; onRestart: () => void; onChangeMode: () => void }) {
+  const completionScope = useCompletionCelebration()
+
   return (
-    <main className="canvas complete-screen typing-complete-screen">
+    <main ref={completionScope} className="canvas complete-screen typing-complete-screen">
       <section className="completion-hero">
-        <div className="celebration icon-box" aria-hidden="true"><Trophy size={46} strokeWidth={1.8} /></div>
+        <span className="completion-illustration" aria-hidden="true" />
         <span className="eyebrow">서울 25구 완주</span>
         <h1>25개 구를<br />모두 맞혔어요</h1>
         <p>25개 자치구를 모두 맞힌 기록이에요.</p>
       </section>
-      <section className="typing-record" aria-label="서울 25구 타자 기록">
+      <section className="typing-record completion-reveal" aria-label={`서울 25구 타자 완주 기록 ${formatRaceDuration(elapsedMs)}`}>
         <span>완주 기록</span>
-        <strong>{formatRaceDuration(elapsedMs)}</strong>
+        <strong aria-hidden="true" data-counter-to={elapsedMs / 1000} data-counter-decimals="1" data-counter-suffix="초">{formatRaceDuration(elapsedMs)}</strong>
         <small>구당 평균 {formatDuration(elapsedMs / 25)}</small>
       </section>
       <div className="bottom-action bottom-action--stacked">
@@ -341,20 +345,20 @@ function HomeScreen({
           <p className="home-description">관심 지역과 주변 지역을<br />다섯 문제로 익혀보세요.</p>
         </div>
         <div className="home-map-visual" aria-hidden="true">
-          <div className="home-map-visual__shape" />
-          <span className="home-map-visual__pin icon-box"><MapPin size={18} strokeWidth={2.4} /></span>
-          <span className="home-map-visual__orbit" />
+          <span className="home-map-visual__illustration" />
+          <span className="home-map-visual__accent" />
         </div>
       </section>
 
       <section className="daily-review-card" aria-label="오늘의 복습">
-        <div>
+        <div className="daily-review-card__copy">
           <span>오늘 다시 볼 지역</span>
           <strong>복습할 지역 {dueRegionIds.length}개</strong>
+          <p>{recentRegion && recentProgress
+            ? `최근 학습 · ${recentRegion.name} · ${STAGE_LABELS[recentProgress.stage]}`
+            : '아직 학습한 지역이 없어요. 첫 지역을 골라보세요.'}</p>
         </div>
-        <p>{recentRegion && recentProgress
-          ? `최근 학습 · ${recentRegion.name} · ${STAGE_LABELS[recentProgress.stage]}`
-          : '아직 학습한 지역이 없어요. 첫 지역을 골라보세요.'}</p>
+        <span className="daily-review-card__illustration" aria-hidden="true" />
       </section>
 
       <section className="pack-progress-grid" aria-label="서울 경기 학습 현황">
@@ -373,7 +377,7 @@ function HomeScreen({
 
       <section className="home-bento" aria-label="학습 현황">
         <button className="collection-entry-card" type="button" onClick={onOpenCollection}>
-          <span className="collection-entry-card__icon icon-box" aria-hidden="true"><MapPinned size={24} strokeWidth={2.2} /></span>
+          <span className="collection-entry-card__illustration" aria-hidden="true" />
           <span className="collection-entry-card__copy">
             <span>서울 도장깨기</span>
             <strong>{loadStatus === 'ready' ? `${masteredCount}개 자치구를 익혔어요` : '학습 지도를 확인해 보세요'}</strong>
@@ -678,7 +682,7 @@ function QuizScreen({
   const isMapSelection = question.questionType === 'map-selection'
   const isConfirmation = question.scored === false
   const heading = isMapSelection
-    ? `${question.district}은 지도에서 어디일까요?`
+    ? `${appendJosa(question.district, '은', '는')} 지도에서 어디일까요?`
     : question.questionType === 'silhouette'
       ? '이 지역의 모양은 어디일까요?'
       : '지도에 표시된 지역은 어디일까요?'
@@ -718,7 +722,7 @@ function QuizScreen({
         onMapLoadFailed={onMapLoadFailed}
         showRegionList={isMapSelection}
         caption={isMapSelection && !result ? `${question.district}의 위치를 지도나 지역 목록에서 선택해 주세요.` : undefined}
-      /> : <SeoulDistrictMap activeDistrict={question.district} result={result} onMapLoadFailed={onMapLoadFailed} />}
+      /> : <SeoulDistrictMap activeDistrict={question.district} result={result} interactive={false} onMapLoadFailed={onMapLoadFailed} />}
 
       <section className="answer-stage">
         {question.mode === 'choice' && !isMapSelection ? (
@@ -784,26 +788,32 @@ function CompleteScreen({
   const accuracy = Math.round((correctCount / totalQuestions) * 100)
   const totalDuration = answerDurations.reduce((total, duration) => total + duration, 0)
   const averageDuration = totalQuestions > 0 ? totalDuration / totalQuestions : 0
+  const completionScope = useCompletionCelebration()
 
   return (
-    <main className="canvas complete-screen">
+    <main ref={completionScope} className="canvas complete-screen">
       <section className="completion-hero">
-        <div className="celebration icon-box" aria-hidden="true"><Sparkles size={48} strokeWidth={1.8} /></div>
+        <span className="completion-illustration" aria-hidden="true" />
         <span className="eyebrow">{mode === 'choice' ? '객관식' : '주관식'} 완료</span>
         <h1>서울이 조금 더<br />가까워졌어요</h1>
         <p>{correctCount === totalQuestions ? `${totalQuestions}문제를 모두 맞혔어요.` : `${correctCount}문제를 맞혔어요.`}</p>
       </section>
-      <section className="result-card" aria-label="학습 결과">
-        <article><span>획득 XP</span><strong>{xp}</strong></article>
-        <article><span>정확도</span><strong>{accuracy}%</strong></article>
-        <article><span>정답</span><strong>{correctCount}/{totalQuestions}</strong></article>
+      <section className="result-card completion-reveal" aria-label="학습 결과">
+        <article aria-label={`획득 XP ${xp}`}><span aria-hidden="true">획득 XP</span><strong aria-hidden="true" data-counter-to={xp}>{xp}</strong></article>
+        <article aria-label={`정확도 ${accuracy}%`}><span aria-hidden="true">정확도</span><strong aria-hidden="true" data-counter-to={accuracy} data-counter-suffix="%">{accuracy}%</strong></article>
+        <article aria-label={`정답 ${correctCount}/${totalQuestions}`}><span aria-hidden="true">정답</span><strong aria-hidden="true" data-counter-to={correctCount} data-counter-suffix={`/${totalQuestions}`}>{correctCount}/{totalQuestions}</strong></article>
       </section>
-      <section className="time-result-card" aria-label="풀이 시간 결과">
+      <section className="time-result-card completion-reveal" aria-label="풀이 시간 결과">
         <div><span>총 풀이 시간</span><strong>{formatDuration(totalDuration)}</strong></div>
         <div><span>문제당 평균</span><strong>{formatDuration(averageDuration)}</strong></div>
       </section>
-      <section className="streak-card">
-        <span className="streak-card__icon icon-box" aria-hidden="true"><Flame size={32} /></span>
+      <section className={`streak-card completion-reveal ${records.currentCorrectStreak > 0 ? 'streak-card--active' : ''}`} aria-label={`${records.currentCorrectStreak}문제 연속 정답`}>
+        <span className="streak-card__icon icon-box" aria-hidden="true">
+          <Flame className="streak-card__flame" size={32} />
+          {records.currentCorrectStreak > 0 ? <span className="streak-card__embers">
+            {Array.from({ length: 5 }, (_, index) => <span className="streak-card__ember" key={index} />)}
+          </span> : null}
+        </span>
         <div>
           <strong>{records.currentCorrectStreak}문제 연속 정답</strong>
           <p>{records.currentCorrectStreak > 0 ? '다음 문제에서도 기록을 이어가 보세요.' : '다음 정답부터 새 스트릭이 시작돼요.'}</p>
@@ -858,25 +868,26 @@ function RegionalCompleteScreen({
     .filter((region) => region !== undefined)
     .slice(0, 3)
   const totalDuration = answerDurations.reduce((total, duration) => total + duration, 0)
+  const completionScope = useCompletionCelebration()
 
-  return <main className="canvas complete-screen regional-complete-screen">
+  return <main ref={completionScope} className="canvas complete-screen regional-complete-screen">
     <section className="completion-hero">
-      <div className="celebration icon-box" aria-hidden="true"><Sparkles size={48} strokeWidth={1.8} /></div>
+      <span className="completion-illustration" aria-hidden="true" />
       <span className="eyebrow">지역 학습 완료</span>
-      <h1>{target?.name ?? '선택한 지역'}을<br />한 번 더 익혔어요</h1>
+      <h1>{appendJosa(target?.name ?? '선택한 지역', '을', '를')}<br />한 번 더 익혔어요</h1>
       <p>{correctCount} / 5문제를 맞혔어요.</p>
     </section>
-    <section className="mastery-result-card" aria-label={`${target?.name ?? '선택 지역'} 숙련도`}>
+    <section className="mastery-result-card completion-reveal" aria-label={`${target?.name ?? '선택 지역'} 숙련도`}>
       <span>{target?.name ?? '선택 지역'} 숙련도</span>
       <strong>{STAGE_LABELS[startingStage]} → {STAGE_LABELS[endingStage]}</strong>
       <p>{formatNextReview(nextReviewAt)}</p>
     </section>
-    <section className="regional-result-grid" aria-label="이번 학습 결과">
-      <article><span>획득 XP</span><strong>{xp}</strong></article>
-      <article><span>정답</span><strong>{correctCount}/5</strong></article>
-      <article><span>풀이 시간</span><strong>{formatDuration(totalDuration)}</strong></article>
+    <section className="regional-result-grid completion-reveal" aria-label="이번 학습 결과">
+      <article aria-label={`획득 XP ${xp}`}><span aria-hidden="true">획득 XP</span><strong aria-hidden="true" data-counter-to={xp}>{xp}</strong></article>
+      <article aria-label={`정답 ${correctCount}/5`}><span aria-hidden="true">정답</span><strong aria-hidden="true" data-counter-to={correctCount} data-counter-suffix="/5">{correctCount}/5</strong></article>
+      <article aria-label={`풀이 시간 ${formatDuration(totalDuration)}`}><span aria-hidden="true">풀이 시간</span><strong aria-hidden="true" data-counter-to={totalDuration / 1000} data-counter-decimals="1" data-counter-suffix="초">{formatDuration(totalDuration)}</strong></article>
     </section>
-    <section className="review-region-card">
+    <section className="review-region-card completion-reveal">
       <h2>다시 보면 좋은 지역</h2>
       {reviewRegions.length > 0 ? <ul>{reviewRegions.map((region) => <li key={region.id}>{region.name}</li>)}</ul> : <p>이번 세트에서 다시 볼 지역은 없어요.</p>}
     </section>

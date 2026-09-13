@@ -18,6 +18,18 @@ describe('서울 전체 타자 출제 순서', () => {
 })
 
 describe('지역 객관식 보기', () => {
+  it('지역명과 인접 지역명에 받침에 맞는 조사를 붙인다', () => {
+    const question = createRegionalQuestion({
+      regionId: 'gyeonggi:pocheon',
+      answer: '포천시',
+      questionType: 'recognition',
+      bucket: 'target',
+      scored: true,
+    })
+
+    expect(question.hint).toBe('포천시는 동두천시·가평군과 경계를 맞대고 있어요.')
+  })
+
   it.each([
     ['recognition', 'gyeonggi:seongnam', '성남시', 4],
     ['silhouette', 'gyeonggi:seongnam', '성남시', 4],

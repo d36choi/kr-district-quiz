@@ -95,6 +95,14 @@ async function openSeongnamCourse(records: PersonalRecordsV2 | null = emptyRecor
   return screen.findByText('01')
 }
 
+async function openLegacySeoulQuiz(mode: '객관식' | '주관식') {
+  render(<App initialRecords={emptyRecords()} />)
+  fireEvent.click(screen.getByRole('button', { name: /^서울 도장깨기/u }))
+  fireEvent.click(screen.getByRole('button', { name: '퀴즈로 지도 채우기' }))
+  fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${mode}`, 'u') }))
+  return screen.findByRole('group', { name: '서울 25개 자치구 지도' })
+}
+
 async function answerCurrentCourseQuestion(correct: boolean, beforeAnswer?: () => void) {
   const activeRegion = await waitFor(() => {
     const node = document.querySelector<SVGGElement>('[aria-current="true"]')
@@ -136,6 +144,48 @@ afterEach(() => {
 })
 
 describe('regional learning app flow', () => {
+  it('서울 객관식은 보기만 답안으로 제공한다', async () => {
+    const map = await openLegacySeoulQuiz('객관식')
+
+    expect(screen.getByRole('group', { name: '답안 선택' })).toBeTruthy()
+    expect(screen.queryByRole('textbox', { name: '지역 이름' })).toBeNull()
+    expect(screen.queryByText('지역 목록에서 선택')).toBeNull()
+    expect(within(map).queryAllByRole('button')).toHaveLength(0)
+  })
+
+  it('서울 주관식은 이름 입력만 답안으로 제공한다', async () => {
+    const map = await openLegacySeoulQuiz('주관식')
+
+    expect(screen.getByRole('textbox', { name: '지역 이름' })).toBeTruthy()
+    expect(screen.queryByRole('group', { name: '답안 선택' })).toBeNull()
+    expect(screen.queryByText('지역 목록에서 선택')).toBeNull()
+    expect(within(map).queryAllByRole('button')).toHaveLength(0)
+  })
+
+  it('완료 애니메이션 중에도 최종 성과를 접근성 이름으로 제공한다', async () => {
+    await openLegacySeoulQuiz('객관식')
+    for (let index = 0; index < 5; index += 1) await answerCurrentCourseQuestion(true)
+
+    expect(screen.getByRole('article', { name: '획득 XP 65' })).toBeTruthy()
+    expect(screen.getByRole('article', { name: '정확도 100%' })).toBeTruthy()
+    expect(screen.getByRole('article', { name: '정답 5/5' })).toBeTruthy()
+    expect(screen.getByRole('region', { name: '5문제 연속 정답' })).toBeTruthy()
+  })
+
+  it('받침 없는 지역명의 지도 문제에 는을 붙인다', async () => {
+    render(<App initialRecords={recordsWithDueReview('gyeonggi:seongnam')} />)
+    fireEvent.click(screen.getByRole('button', { name: '오늘의 5문제' }))
+
+    expect(await screen.findByRole('heading', { name: '성남시는 지도에서 어디일까요?' })).toBeTruthy()
+  })
+
+  it('받침 없는 지역명의 완료 문구에 를을 붙인다', async () => {
+    await openSeongnamCourse()
+    for (let index = 0; index < 5; index += 1) await answerCurrentCourseQuestion(true)
+
+    expect(await screen.findByRole('heading', { name: '성남시를한 번 더 익혔어요' })).toBeTruthy()
+  })
+
   it('오늘의 5문제는 실제 승급만 집계하고 확인 문제와 재방문은 복습 완료를 중복 기록하지 않는다', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-09-12T00:00:00.000Z'))
