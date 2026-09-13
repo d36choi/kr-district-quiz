@@ -4,9 +4,11 @@ import {
   loadPersonalRecords,
   PersonalRecordsMigrationError,
   savePersonalRecords,
+  type RecordStorage,
   type PersonalRecordsV1,
   type PersonalRecordsV2,
 } from '../game/personalRecords'
+import { createAppsInTossGameRecordStorage } from '../game/userRecordStorage'
 
 type LoadStatus = 'loading' | 'ready' | 'error'
 type PendingMutation = {
@@ -14,7 +16,10 @@ type PendingMutation = {
   updater: (current: PersonalRecordsV2) => PersonalRecordsV2
 }
 
-export function usePersonalRecords(initialRecords?: PersonalRecordsV2) {
+export function usePersonalRecords(
+  initialRecords?: PersonalRecordsV2,
+  resolveRecordStorage: () => Promise<RecordStorage> = createAppsInTossGameRecordStorage,
+) {
   const isMemoryBacked = initialRecords !== undefined
   const [records, setRecords] = useState(() => initialRecords ?? createEmptyPersonalRecords())
   const [loadStatus, setLoadStatus] = useState<LoadStatus>(isMemoryBacked ? 'ready' : 'loading')
@@ -28,11 +33,21 @@ export function usePersonalRecords(initialRecords?: PersonalRecordsV2) {
   // Includes queued retries so updates cannot save ahead of their base snapshot.
   const pendingLoadsRef = useRef(0)
   const hasLoadedBaseRef = useRef(false)
+  const storageRef = useRef<RecordStorage | undefined>(undefined)
+
+  const getRecordStorage = useCallback(async () => {
+    if (storageRef.current) return storageRef.current
+    const storage = await resolveRecordStorage()
+    storageRef.current = storage
+    return storage
+  }, [resolveRecordStorage])
 
   const enqueueSnapshot = useCallback((snapshot: PersonalRecordsV2, revision: number) => {
     writeQueueRef.current = writeQueueRef.current.then(async () => {
       try {
-        await savePersonalRecords(snapshot)
+        const storage = storageRef.current
+        if (!storage) throw new Error('Record storage is not ready')
+        await savePersonalRecords(snapshot, storage)
         persistedRevisionRef.current = Math.max(persistedRevisionRef.current, revision)
         pendingMutationsRef.current = pendingMutationsRef.current
           .filter((mutation) => mutation.revision > persistedRevisionRef.current)
@@ -74,7 +89,7 @@ export function usePersonalRecords(initialRecords?: PersonalRecordsV2) {
     const loadPromise = writeQueueRef.current
       .then(() => {
         persistedRevisionAtRead = persistedRevisionRef.current
-        return loadPersonalRecords()
+        return getRecordStorage().then((storage) => loadPersonalRecords(storage))
       })
       .then((nextRecords) => {
         const currentRecords = mergeAndCommitLoadedRecords(nextRecords)
@@ -102,7 +117,7 @@ export function usePersonalRecords(initialRecords?: PersonalRecordsV2) {
     return loadPromise.finally(() => {
       pendingLoadsRef.current -= 1
     })
-  }, [enqueueSnapshot])
+  }, [enqueueSnapshot, getRecordStorage])
 
   useEffect(() => {
     if (isMemoryBacked) return

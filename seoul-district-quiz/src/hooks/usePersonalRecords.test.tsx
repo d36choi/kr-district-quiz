@@ -7,6 +7,7 @@ import {
   LEGACY_PERSONAL_RECORDS_STORAGE_KEY,
   PERSONAL_RECORDS_STORAGE_KEY,
   recordRegionAnswer,
+  type RecordStorage,
 } from '../game/personalRecords'
 import { usePersonalRecords } from './usePersonalRecords'
 
@@ -15,7 +16,12 @@ const storage = vi.hoisted(() => ({
   setItem: vi.fn(),
 }))
 
-vi.mock('@apps-in-toss/web-framework', () => ({ Storage: storage }))
+vi.mock('@apps-in-toss/web-framework', () => ({
+  Storage: storage,
+  User: {
+    getAnonymousKey: Object.assign(vi.fn(), { isSupported: () => false }),
+  },
+}))
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void
@@ -44,6 +50,22 @@ describe('usePersonalRecords write coordination', () => {
   })
 
   afterEach(() => cleanup())
+
+  it('사용자별 저장소를 확정한 뒤에 학습 기록을 불러온다', async () => {
+    const identifiedRecords = { ...createEmptyPersonalRecords(), currentCombo: 3 }
+    const identifiedStorage: RecordStorage = {
+      getItem: async (key) => key === PERSONAL_RECORDS_STORAGE_KEY ? JSON.stringify(identifiedRecords) : null,
+      setItem: vi.fn(),
+    }
+    const resolveStorage = vi.fn(async () => identifiedStorage)
+
+    const { result } = renderHook(() => usePersonalRecords(undefined, resolveStorage))
+
+    await waitFor(() => expect(result.current.loadStatus).toBe('ready'))
+    expect(result.current.recordsV2.currentCombo).toBe(3)
+    expect(resolveStorage).toHaveBeenCalledTimes(1)
+    expect(storage.getItem).not.toHaveBeenCalled()
+  })
 
   it('updates each record synchronously while serializing immutable storage snapshots', async () => {
     storage.getItem.mockResolvedValue(JSON.stringify(createEmptyPersonalRecords()))

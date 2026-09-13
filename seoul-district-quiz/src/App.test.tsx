@@ -46,6 +46,9 @@ vi.mock('@apps-in-toss/web-framework', () => ({
     subscribe: () => () => undefined,
   },
   Storage: storage,
+  User: {
+    getAnonymousKey: Object.assign(vi.fn(), { isSupported: () => false }),
+  },
 }))
 
 vi.mock('./analytics/events', () => analytics)
@@ -179,6 +182,16 @@ describe('regional learning app flow', () => {
     expect(await screen.findByRole('heading', { name: '성남시는 지도에서 어디일까요?' })).toBeTruthy()
   })
 
+  it('지도 선택 문제는 지도만 답안으로 제공한다', async () => {
+    render(<App initialRecords={recordsWithDueReview('gyeonggi:seongnam')} />)
+    fireEvent.click(screen.getByRole('button', { name: '오늘의 5문제' }))
+
+    expect(await screen.findByText('지도에서 성남시를 선택해 주세요.')).toBeTruthy()
+    expect(screen.queryByText('지역 목록에서 선택')).toBeNull()
+    expect(screen.queryByRole('searchbox', { name: '지역명 검색' })).toBeNull()
+    expect(screen.getByRole('group', { name: '경기 31개 시·군 지도' })).toBeTruthy()
+  })
+
   it('받침 없는 지역명의 완료 문구에 를을 붙인다', async () => {
     await openSeongnamCourse()
     for (let index = 0; index < 5; index += 1) await answerCurrentCourseQuestion(true)
@@ -208,8 +221,8 @@ describe('regional learning app flow', () => {
     render(<StrictMode><App initialRecords={records} /></StrictMode>)
     expect(analytics.trackReviewPromptShown).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByRole('button', { name: '오늘의 5문제' }))
-    const mapList = await screen.findByRole('list', { name: '지역 목록' })
-    fireEvent.click(within(mapList).getByRole('button', { name: '성남시' }))
+    const map = await screen.findByRole('group', { name: '경기 31개 시·군 지도' })
+    fireEvent.click(within(map).getByRole('button', { name: /^성남시/u }))
     fireEvent.click(screen.getByRole('button', { name: '정답 확인' }))
     fireEvent.click(screen.getByRole('button', { name: '계속하기' }))
     for (let index = 1; index < 5; index += 1) await answerCurrentCourseQuestion(index !== 1)

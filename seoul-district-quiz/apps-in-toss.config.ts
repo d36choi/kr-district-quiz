@@ -5,8 +5,17 @@ export default defineConfig({
   brand: {
     primaryColor: '#A9433D',
   },
-  webViewProps: {
-    type: 'game',
+  navigationBar: {
+    withBackButton: false,
+    withHomeButton: false,
+    withTitle: false,
+    transparentBackground: true,
+  },
+  webView: {
+    bounces: false,
+    pullToRefreshEnabled: false,
+    overScrollMode: 'never',
+    allowsBackForwardNavigationGestures: false,
   },
   permissions: [],
   webBundleDir: 'dist',

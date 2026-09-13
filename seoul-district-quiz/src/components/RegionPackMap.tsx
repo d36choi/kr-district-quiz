@@ -239,7 +239,7 @@ function ScopedRegionMap(props: RegionPackMapProps & { parentRegionId?: string }
       <span>{caption}</span>
       {loadState.status === 'ready' ? <small>{loadState.data.attribution}</small> : null}
     </figcaption>
-    {interactive && showRegionList ? <details className="region-list-fallback" open={listOpen || loadState.status !== 'ready'} onToggle={(event) => {
+    {interactive && (showRegionList || loadState.status === 'error') ? <details className="region-list-fallback" open={listOpen || loadState.status !== 'ready'} onToggle={(event) => {
       if (loadState.status === 'ready') setListOpen(event.currentTarget.open)
     }}>
       <summary>지역 목록에서 선택</summary>

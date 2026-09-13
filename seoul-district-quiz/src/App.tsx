@@ -720,8 +720,8 @@ function QuizScreen({
         variant={question.questionType === 'silhouette' ? 'silhouette' : 'quiz'}
         onRegionSelect={(regionId) => setSelectedAnswer(getRegion(regionId)?.name ?? '')}
         onMapLoadFailed={onMapLoadFailed}
-        showRegionList={isMapSelection}
-        caption={isMapSelection && !result ? `${question.district}의 위치를 지도나 지역 목록에서 선택해 주세요.` : undefined}
+        showRegionList={false}
+        caption={isMapSelection && !result ? `지도에서 ${appendJosa(question.district, '을', '를')} 선택해 주세요.` : undefined}
       /> : <SeoulDistrictMap activeDistrict={question.district} result={result} interactive={false} onMapLoadFailed={onMapLoadFailed} />}
 
       <section className="answer-stage">

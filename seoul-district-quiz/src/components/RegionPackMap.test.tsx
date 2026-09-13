@@ -132,6 +132,20 @@ describe('RegionPackMap', () => {
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
+  it('목록을 숨긴 지도도 불러오기가 실패한 동안에만 대체 목록을 제공한다', async () => {
+    vi.spyOn(geometry, 'loadGeometry').mockRejectedValueOnce(new Error('unavailable'))
+    render(<RegionPackMap packId="gyeonggi" interactive showRegionList={false} />)
+
+    await screen.findByRole('alert')
+    expect(screen.getByText('지역 목록에서 선택')).toBeTruthy()
+    expect(screen.getByRole('searchbox', { name: '지역명 검색' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '다시 불러오기' }))
+    await screen.findByRole('group', { name: '경기 31개 시·군 지도' })
+    expect(screen.queryByText('지역 목록에서 선택')).toBeNull()
+    expect(screen.queryByRole('searchbox', { name: '지역명 검색' })).toBeNull()
+  })
+
   it('지도 재시도에서 실패한 요청마다 실패 콜백을 한 번씩만 알린다', async () => {
     vi.spyOn(geometry, 'loadGeometry').mockRejectedValue(new Error('unavailable'))
     const failedPacks: string[] = []
