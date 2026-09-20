@@ -186,6 +186,25 @@ function orderReviewCandidates(
     .flatMap(([, tiedRegions]) => shuffle(tiedRegions, random))
 }
 
+/** Build a short review containing only regions that are already due. */
+export function buildDueReviewCourse(
+  progressByRegion: ProgressByRegion,
+  now: ReviewDate,
+): CoursePlan | undefined {
+  const dueRegions = Object.values(progressByRegion)
+    .filter((progress) => progress.nextReviewAt && isReviewDue(progress, now) && getRegion(progress.regionId)?.parentId)
+    .toSorted((left, right) => new Date(left.nextReviewAt!).getTime() - new Date(right.nextReviewAt!).getTime()
+      || left.regionId.localeCompare(right.regionId))
+    .slice(0, 5)
+    .map((progress) => getRegion(progress.regionId)!)
+
+  if (!dueRegions.length) return undefined
+  return Object.freeze({
+    targetRegionId: dueRegions[0].id,
+    scoredQuestions: Object.freeze(dueRegions.map((region) => makeQuestion(region, 'review', progressByRegion))),
+  })
+}
+
 function uniqueRegions(regions: readonly Region[]): Region[] {
   return [...new Map(regions.map((region) => [region.id, region])).values()]
 }

@@ -14,6 +14,9 @@ export type RegionProgress = {
   nextReviewAt: string | null
   lastQuestionType: string | null
   lastPromotionSessionId?: string | null
+  reviewOutcome?: 'correct' | 'wrong'
+  reviewOutcomeCount?: number
+  lastReviewDate?: string
 }
 
 export type ReviewDate = Date | string
@@ -28,11 +31,11 @@ const REVIEW_INTERVAL_DAYS: Record<ProgressStage, number> = {
   1: 1,
   2: 3,
   3: 7,
-  4: 21,
+  4: 14,
 }
 
-// Learning dates in this app use Korea Standard Time, regardless of the
-// device/runtime timezone. Explicitly offset strings retain their own offset.
+// Date objects follow the device timezone. Explicitly offset strings retain
+// their own offset; offset-free legacy strings fall back to Korea time.
 const DEFAULT_OFFSET_MINUTES = 9 * 60
 
 export function createRegionProgress(regionId: string): RegionProgress {
@@ -54,7 +57,7 @@ function parseReviewDate(value: ReviewDate): Date {
 }
 
 function getOffsetMinutes(value: ReviewDate): number {
-  if (typeof value !== 'string') return DEFAULT_OFFSET_MINUTES
+  if (typeof value !== 'string') return -value.getTimezoneOffset()
 
   if (/Z$/i.test(value)) return 0
   const match = value.match(/([+-])(\d{2}):?(\d{2})$/)
@@ -66,7 +69,7 @@ function getOffsetMinutes(value: ReviewDate): number {
   return (match[1] === '-' ? -1 : 1) * (hours * 60 + minutes)
 }
 
-/** Add calendar days in the date's intended local offset, then serialize UTC. */
+/** Move to midnight after the requested number of local calendar days. */
 function addCalendarDays(value: ReviewDate, days: number): Date {
   const date = parseReviewDate(value)
   const offsetMinutes = getOffsetMinutes(value)
@@ -75,10 +78,10 @@ function addCalendarDays(value: ReviewDate, days: number): Date {
     localTime.getUTCFullYear(),
     localTime.getUTCMonth(),
     localTime.getUTCDate() + days,
-    localTime.getUTCHours(),
-    localTime.getUTCMinutes(),
-    localTime.getUTCSeconds(),
-    localTime.getUTCMilliseconds(),
+    0,
+    0,
+    0,
+    0,
   ))
 
   return new Date(shifted.getTime() - offsetMinutes * 60_000)
@@ -136,6 +139,43 @@ export function applyScoredAnswer(
   }
 
   return result
+}
+
+function getLocalDateKey(value: ReviewDate): string {
+  const date = parseReviewDate(value)
+  const offsetMinutes = getOffsetMinutes(value)
+  return new Date(date.getTime() + offsetMinutes * 60_000).toISOString().slice(0, 10)
+}
+
+/** Apply a review result only once per local calendar date. */
+export function applyReviewAnswer(
+  progress: RegionProgress,
+  correct: boolean,
+  answeredAt: ReviewDate,
+): RegionProgress {
+  const reviewDate = getLocalDateKey(answeredAt)
+  const outcome = correct ? 'correct' : 'wrong'
+  const sameDate = progress.lastReviewDate === reviewDate
+  const continuing = progress.reviewOutcome === outcome
+  const outcomeCount = sameDate
+    ? progress.reviewOutcomeCount ?? 0
+    : continuing ? (progress.reviewOutcomeCount ?? 0) + 1 : 1
+  const shouldChangeStage = !sameDate && outcomeCount >= 2
+  const stage = shouldChangeStage
+    ? (correct ? Math.min(progress.stage + 1, 4) : Math.max(progress.stage - 1, 0)) as ProgressStage
+    : progress.stage
+
+  return {
+    ...progress,
+    stage,
+    attempts: progress.attempts + 1,
+    correctAnswers: progress.correctAnswers + (correct ? 1 : 0),
+    lastAnsweredAt: parseReviewDate(answeredAt).toISOString(),
+    nextReviewAt: getNextReviewAt(correct ? stage : 1, answeredAt),
+    reviewOutcome: outcome,
+    reviewOutcomeCount: shouldChangeStage ? 0 : outcomeCount,
+    lastReviewDate: reviewDate,
+  }
 }
 
 export function isReviewDue(progress: RegionProgress, now: ReviewDate): boolean {

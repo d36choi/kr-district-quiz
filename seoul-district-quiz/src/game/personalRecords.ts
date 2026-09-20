@@ -2,6 +2,7 @@ import { Storage } from '@apps-in-toss/web-framework'
 import { getRegion, getTopLevelRegions } from '../data/regions'
 import {
   applyScoredAnswer,
+  applyReviewAnswer,
   createRegionProgress,
   type LearningSession,
   type ProgressStage,
@@ -115,6 +116,13 @@ function parseRegionProgress(key: string, value: unknown): RegionProgress | unde
   }
   if (promotionSession === null || typeof promotionSession === 'string') {
     progress.lastPromotionSessionId = promotionSession
+  }
+  if ((value.reviewOutcome === 'correct' || value.reviewOutcome === 'wrong')
+    && typeof value.reviewOutcomeCount === 'number' && Number.isInteger(value.reviewOutcomeCount)
+    && value.reviewOutcomeCount >= 0 && isValidCalendarDate(value.lastReviewDate)) {
+    progress.reviewOutcome = value.reviewOutcome
+    progress.reviewOutcomeCount = value.reviewOutcomeCount
+    progress.lastReviewDate = value.lastReviewDate
   }
   return progress
 }
@@ -236,6 +244,7 @@ export type RegionAnswerResult = {
   /** A course/session boundary used by spaced-review promotion rules. */
   sessionId?: string
   courseId?: string
+  review?: boolean
   session?: LearningSession
 }
 
@@ -247,12 +256,10 @@ export function recordRegionAnswer(
 
   const previous = records.progressByRegion[result.regionId] ?? createRegionProgress(result.regionId)
   const session = result.session ?? result.sessionId ?? result.courseId
-  const progress = applyScoredAnswer(
-    { ...previous, lastQuestionType: result.questionType },
-    result.correct,
-    result.answeredAt,
-    session,
-  )
+  const input = { ...previous, lastQuestionType: result.questionType }
+  const progress = result.review
+    ? applyReviewAnswer(input, result.correct, result.answeredAt)
+    : applyScoredAnswer(input, result.correct, result.answeredAt, session)
   const currentCombo = result.correct ? records.currentCombo + 1 : 0
 
   return projectLegacyFields({

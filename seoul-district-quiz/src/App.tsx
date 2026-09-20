@@ -23,7 +23,7 @@ import {
 import { ALL_DISTRICT_NAMES, CHOICE_QUESTIONS, TEXT_QUESTIONS, createRegionalQuestion, shuffleDistricts, type Question } from './data/districts'
 import { REGION_MAP_ASSET_VERSIONS } from './data/mapAssets'
 import { getRegion, getTopLevelRegions, REGIONS_BY_ID, type RegionPackId } from './data/regions'
-import { buildConfirmationQuestions, buildCourse, buildWeakReviewCourse, getWeakRegions, type CoursePlan, type CourseQuestion } from './game/courseGenerator'
+import { buildConfirmationQuestions, buildCourse, buildDueReviewCourse, buildWeakReviewCourse, getWeakRegions, type CoursePlan, type CourseQuestion } from './game/courseGenerator'
 import { replayCopy } from './game/replayCopy'
 import {
   recordAnswer,
@@ -52,6 +52,7 @@ type RegionalSession = {
   confirmationAdded: boolean
   origin: 'browse' | 'due-review' | 'weak-review'
   stageUpCount: number
+  attemptsByRegion: Record<string, number>
 }
 
 const STAGE_LABELS: readonly string[] = ['처음 봄', '익히는 중', '익숙해지는 중', '익숙함', '잘 알고 있음']
@@ -293,7 +294,7 @@ function HomeScreen({
   dailyStreak: number
   loadStatus: 'loading' | 'ready' | 'error'
   recentTargetRegionId?: string
-  onStartReview: (regionId: string) => void
+  onStartReview: () => void
   onStartWeakReview: () => void
   onBrowse: () => void
   onOpenCollection: () => void
@@ -357,7 +358,7 @@ function HomeScreen({
       <section className="daily-review-card" aria-label="오늘의 복습">
         <div className="daily-review-card__copy">
           <span>오늘 다시 볼 지역</span>
-          <strong>복습할 지역 {dueRegionIds.length}개</strong>
+          <strong>{dueRegionIds.length > 0 ? `복습할 지역 ${dueRegionIds.length}개` : '오늘 복습 완료'}</strong>
           <p>{recentRegion && recentProgress
             ? `최근 학습 · ${recentRegion.name} · ${STAGE_LABELS[recentProgress.stage]}`
             : '아직 학습한 지역이 없어요. 첫 지역을 골라보세요.'}</p>
@@ -404,8 +405,8 @@ function HomeScreen({
       </section>
 
       <div className="bottom-action bottom-action--stacked home-action">
-        {dueRegionIds.length > 0 ? <button className="primary-button" type="button" onClick={() => onStartReview(dueRegionIds[0])}>오늘의 5문제</button> : null}
-        <button className={dueRegionIds.length > 0 ? 'secondary-button' : 'primary-button'} type="button" onClick={onBrowse}>새 지역 찾아보기</button>
+        <button className="primary-button" type="button" onClick={onBrowse}>새 지역 찾아보기</button>
+        {dueRegionIds.length > 0 ? <button className="secondary-button" type="button" onClick={onStartReview}>오늘의 복습 시작</button> : null}
         <p>약 1~2분이면 끝나요</p>
       </div>
     </main>
@@ -857,7 +858,9 @@ function RegionalCompleteScreen({
   endingStage,
   nextReviewAt,
   xp,
+  hearts,
   correctCount,
+  totalQuestions,
   answerDurations,
   wrongQuestions,
   saveFailed,
@@ -873,7 +876,9 @@ function RegionalCompleteScreen({
   endingStage: ProgressStage
   nextReviewAt?: string | null
   xp: number
+  hearts: number
   correctCount: number
+  totalQuestions: number
   answerDurations: number[]
   wrongQuestions: CourseQuestion[]
   saveFailed: boolean
@@ -903,8 +908,8 @@ function RegionalCompleteScreen({
         </span>
       </div>
       <span className="eyebrow">지역 학습 완료</span>
-      <h1>{replayCopy.completeHeading}</h1>
-      <p>{correctCount} / 5문제를 맞혔어요.</p>
+      <h1>{totalQuestions}문제를 풀었어요</h1>
+      <p>{correctCount} / {totalQuestions}문제를 맞혔어요.</p>
       <p>{replayCopy.improved(stageUpCount)}</p>
     </section>
     <section className="mastery-result-card completion-reveal" aria-label={`${target?.name ?? '선택 지역'} 숙련도`}>
@@ -914,7 +919,8 @@ function RegionalCompleteScreen({
     </section>
     <section className="regional-result-grid completion-reveal" aria-label="이번 학습 결과">
       <article aria-label={`획득 XP ${xp}`}><span aria-hidden="true">획득 XP</span><strong aria-hidden="true" data-counter-to={xp}>{xp}</strong></article>
-      <article aria-label={`정답 ${correctCount}/5`}><span aria-hidden="true">정답</span><strong aria-hidden="true" data-counter-to={correctCount} data-counter-suffix="/5">{correctCount}/5</strong></article>
+      <article aria-label={`정답 ${correctCount}/${totalQuestions}`}><span aria-hidden="true">정답</span><strong aria-hidden="true" data-counter-to={correctCount} data-counter-suffix={`/${totalQuestions}`}>{correctCount}/{totalQuestions}</strong></article>
+      <article aria-label={`남은 하트 ${hearts}`}><span aria-hidden="true">남은 하트</span><strong aria-hidden="true">{hearts}</strong></article>
       <article aria-label={`풀이 시간 ${formatDuration(totalDuration)}`}><span aria-hidden="true">풀이 시간</span><strong aria-hidden="true" data-counter-to={totalDuration / 1000} data-counter-decimals="1" data-counter-suffix="초">{formatDuration(totalDuration)}</strong></article>
     </section>
     <section className="review-region-card completion-reveal">
@@ -954,6 +960,7 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
   const [regionalSession, setRegionalSession] = useState<RegionalSession>()
   const [questionIndex, setQuestionIndex] = useState(0)
   const [hearts, setHearts] = useState(3)
+  const [completedHearts, setCompletedHearts] = useState(3)
   const [xp, setXp] = useState(0)
   const [combo, setCombo] = useState(0)
   const [correctCount, setCorrectCount] = useState(0)
@@ -1028,6 +1035,7 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
       confirmationAdded: false,
       origin,
       stageUpCount: 0,
+      attemptsByRegion: {},
     })
     setRecentTargetRegionId(targetRegionId)
     resetQuestionState(plan.scoredQuestions.map((question) => createRegionalQuestion(question)))
@@ -1042,6 +1050,7 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
     const currentQuestion = questions[questionIndex]
     const correct = normalizeDistrict(answer) === normalizeDistrict(currentQuestion.district)
     const isScored = currentQuestion.scored !== false
+    const isDueCorrection = regionalSession?.origin === 'due-review' && !isScored
     if (isScored && correct) {
       const nextCombo = combo + 1
       setCombo(nextCombo)
@@ -1051,6 +1060,9 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
       setCombo(0)
       setHearts((count) => Math.max(0, count - 1))
       setWrongQuestions((items) => [...items, currentQuestion])
+    } else if (isDueCorrection && correct) {
+      setXp((score) => score + 5)
+      setHearts((count) => Math.min(3, count + 1))
     }
     if (regionalSession && currentQuestion.regionId) {
       const courseQuestion: CourseQuestion = {
@@ -1069,6 +1081,7 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
           questionType: courseQuestion.questionType,
           sessionId: regionalSession.sessionId,
           courseId: `region:${regionalSession.plan.targetRegionId}`,
+          review: regionalSession.origin === 'due-review',
         })
         trackAnswerSubmitted({
           regionId: currentQuestion.regionId,
@@ -1078,9 +1091,23 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
         })
         setRegionalSession((session) => session ? {
           ...session,
+          attemptsByRegion: {
+            ...session.attemptsByRegion,
+            [currentQuestion.regionId!]: (session.attemptsByRegion[currentQuestion.regionId!] ?? 0) + 1,
+          },
           stageUpCount: session.stageUpCount + (transition && transition.stageAfter > transition.stageBefore ? 1 : 0),
           wrongQuestions: correct ? session.wrongQuestions : [...session.wrongQuestions, courseQuestion],
         } : session)
+      } else if (isDueCorrection) {
+        setRegionalSession((session) => {
+          if (!session) return session
+          const attempts = (session.attemptsByRegion[currentQuestion.regionId!] ?? 1) + 1
+          if (!correct && attempts < 5) setQuestions((items) => [...items, currentQuestion])
+          return {
+            ...session,
+            attemptsByRegion: { ...session.attemptsByRegion, [currentQuestion.regionId!]: attempts },
+          }
+        })
       }
     } else {
       updateRecords((currentRecords) => recordAnswer(currentRecords, {
@@ -1100,6 +1127,12 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
     else setScreen('home')
   }
 
+  const startDueReview = () => {
+    const plan = buildDueReviewCourse(records.progressByRegion, new Date())
+    if (plan) startRegionalCourse(plan.targetRegionId, 'due-review', plan)
+    else setScreen('home')
+  }
+
   const continueQuiz = () => {
     if (questionIndex + 1 < questions.length) {
       setQuestionIndex((index) => index + 1)
@@ -1108,7 +1141,9 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
     }
 
     if (regionalSession && !regionalSession.confirmationAdded && regionalSession.wrongQuestions.length > 0) {
-      const confirmations = buildConfirmationQuestions(regionalSession.wrongQuestions)
+      const confirmations = regionalSession.origin === 'due-review'
+        ? regionalSession.wrongQuestions.map((question) => ({ ...question, scored: false as const }))
+        : buildConfirmationQuestions(regionalSession.wrongQuestions)
       const confirmationQuestions = confirmations.map((question) => createRegionalQuestion(question))
       setQuestions((current) => [...current, ...confirmationQuestions])
       setRegionalSession({ ...regionalSession, confirmationAdded: true })
@@ -1133,6 +1168,7 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
           })
         }
       }
+      if (sessionKind !== 'review') setCompletedHearts(hearts)
       setScreen('complete')
       setResult(null)
       return
@@ -1168,7 +1204,7 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
 
   return (
     <div className="app-shell" style={appStyle}>
-      {screen === 'home' ? <HomeScreen records={records} dailyStreak={dailyStreak} loadStatus={loadStatus} recentTargetRegionId={recentTargetRegionId} onStartReview={(regionId) => startRegionalCourse(regionId, 'due-review')} onStartWeakReview={startWeakReview} onBrowse={() => setScreen('region-picker')} onOpenCollection={() => setScreen('collection')} onOpenRecords={() => setScreen('records')} /> : null}
+      {screen === 'home' ? <HomeScreen records={records} dailyStreak={dailyStreak} loadStatus={loadStatus} recentTargetRegionId={recentTargetRegionId} onStartReview={startDueReview} onStartWeakReview={startWeakReview} onBrowse={() => setScreen('region-picker')} onOpenCollection={() => setScreen('collection')} onOpenRecords={() => setScreen('records')} /> : null}
       {screen === 'collection' ? <DistrictCollectionScreen records={records} loadStatus={loadStatus} onMapLoadFailed={reportMapLoadFailure} onRetry={() => { void retryLoad() }} onStart={() => setScreen('mode')} onBack={() => setScreen('home')} /> : null}
       {screen === 'records' ? <RecordsDashboardScreen records={records} loadStatus={loadStatus} onRetry={() => { void retryLoad() }} onStart={() => setScreen('mode')} onBack={() => setScreen('home')} /> : null}
       {screen === 'region-picker' ? <RegionPickerScreen
@@ -1208,7 +1244,9 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
         endingStage={records.progressByRegion[regionalSession.plan.targetRegionId]?.stage ?? 0}
         nextReviewAt={records.progressByRegion[regionalSession.plan.targetRegionId]?.nextReviewAt}
         xp={xp}
+        hearts={completedHearts}
         correctCount={correctCount}
+        totalQuestions={regionalSession.plan.scoredQuestions.length}
         answerDurations={answerDurations}
         wrongQuestions={regionalSession.wrongQuestions}
         saveFailed={saveFailed}

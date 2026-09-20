@@ -238,14 +238,14 @@ describe('regional learning app flow', () => {
 
   it('받침 없는 지역명의 지도 문제에 는을 붙인다', async () => {
     render(<App initialRecords={recordsWithDueReview('gyeonggi:seongnam')} />)
-    fireEvent.click(screen.getByRole('button', { name: '오늘의 5문제' }))
+    fireEvent.click(screen.getByRole('button', { name: '오늘의 복습 시작' }))
 
     expect(await screen.findByRole('heading', { name: '성남시는 지도에서 어디일까요?' })).toBeTruthy()
   })
 
   it('경기 지도 선택은 A B C 세 위치와 주변 단서를 제공한다', async () => {
     render(<App initialRecords={recordsWithDueReview('gyeonggi:seongnam')} />)
-    fireEvent.click(screen.getByRole('button', { name: '오늘의 5문제' }))
+    fireEvent.click(screen.getByRole('button', { name: '오늘의 복습 시작' }))
 
     expect(await screen.findByText('주변 지역 이름을 기준으로 위치를 찾아보세요.')).toBeTruthy()
     expect(within(screen.getByRole('group', { name: '위치 선택' })).getAllByRole('button')).toHaveLength(3)
@@ -266,6 +266,7 @@ describe('regional learning app flow', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-09-12T00:00:00.000Z'))
     const records = emptyRecords()
+    const dueIds = new Set(['gyeonggi:seongnam', 'gyeonggi:suwon', 'gyeonggi:yongin', 'seoul:mapo', 'seoul:jongno'])
     for (const region of Object.values(REGIONS_BY_ID)) {
       if (region.parentId === null) continue
       records.progressByRegion[region.id] = {
@@ -274,8 +275,8 @@ describe('regional learning app flow', () => {
         attempts: 2,
         correctAnswers: 2,
         lastAnsweredAt: '2026-09-01T00:00:00.000Z',
-        nextReviewAt: region.id === 'gyeonggi:seongnam'
-          ? '2026-09-02T00:00:00.000Z'
+        nextReviewAt: dueIds.has(region.id)
+          ? region.id === 'gyeonggi:seongnam' ? '2026-09-01T00:00:00.000Z' : '2026-09-02T00:00:00.000Z'
           : '2026-09-20T00:00:00.000Z',
         // Legacy stage 2 requires a session baseline, so a correct answer
         // does not promote it. Only the stage 1 target should advance.
@@ -283,7 +284,7 @@ describe('regional learning app flow', () => {
     }
     render(<StrictMode><App initialRecords={records} /></StrictMode>)
     expect(analytics.trackReviewPromptShown).toHaveBeenCalledTimes(1)
-    fireEvent.click(screen.getByRole('button', { name: '오늘의 5문제' }))
+    fireEvent.click(screen.getByRole('button', { name: '오늘의 복습 시작' }))
     await answerCurrentCourseQuestion(true)
     for (let index = 1; index < 5; index += 1) await answerCurrentCourseQuestion(index !== 1)
     expect(analytics.trackAnswerSubmitted).toHaveBeenCalledTimes(5)
@@ -297,7 +298,7 @@ describe('regional learning app flow', () => {
       courseId: 'region:gyeonggi:seongnam', scoredCount: 5, correctCount: 4,
     })
     expect(analytics.trackReviewSessionCompleted).toHaveBeenCalledExactlyOnceWith({
-      scoredCount: 5, correctCount: 4, stageUpCount: 1,
+      scoredCount: 5, correctCount: 4, stageUpCount: 0,
     })
     fireEvent.click(screen.getByRole('button', { name: '오답만 복습 (1)' }))
     await answerCurrentCourseQuestion(true)
@@ -395,14 +396,43 @@ describe('regional learning app flow', () => {
     })
   })
 
-  it('복습 대상이 있으면 홈의 첫 CTA가 오늘의 5문제다', () => {
+  it('홈은 새 지역 학습을 먼저 제공하고 그 다음에 오늘의 복습을 제공한다', () => {
     render(<App initialRecords={recordsWithDueReview('gyeonggi:seongnam')} />)
-    const review = screen.getByRole('button', { name: '오늘의 5문제' })
+    const review = screen.getByRole('button', { name: '오늘의 복습 시작' })
     const browse = screen.getByRole('button', { name: '새 지역 찾아보기' })
-    expect(review.compareDocumentPosition(browse) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(review.classList.contains('primary-button')).toBe(true)
-    expect(browse.classList.contains('secondary-button')).toBe(true)
+    expect(browse.compareDocumentPosition(review) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(browse.classList.contains('primary-button')).toBe(true)
+    expect(review.classList.contains('secondary-button')).toBe(true)
     expect(screen.getByText('복습할 지역 1개')).toBeTruthy()
+  })
+
+  it('복습 대상이 없으면 홈에 오늘 복습 완료를 표시한다', () => {
+    render(<App initialRecords={emptyRecords()} />)
+
+    expect(screen.getByText('오늘 복습 완료')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: '오늘의 복습 시작' })).toBeNull()
+  })
+
+  it('오늘의 복습은 만기 지역만 출제해 한 지역이면 한 문제로 끝난다', async () => {
+    render(<App initialRecords={recordsWithDueReview('gyeonggi:seongnam')} />)
+
+    fireEvent.click(screen.getByRole('button', { name: '오늘의 복습 시작' }))
+
+    expect(await screen.findByText('1 / 1 문제')).toBeTruthy()
+  })
+
+  it('오늘의 복습 오답은 뒤에 다시 출제하고 교정 정답에 5 XP와 하트를 회복한다', async () => {
+    render(<App initialRecords={recordsWithDueReview('gyeonggi:seongnam')} />)
+    fireEvent.click(screen.getByRole('button', { name: '오늘의 복습 시작' }))
+
+    await answerCurrentCourseQuestion(false)
+    expect(await screen.findByText('오답 복습')).toBeTruthy()
+    await answerCurrentCourseQuestion(true)
+
+    expect(await screen.findByRole('heading', { name: '1문제를 풀었어요' })).toBeTruthy()
+    expect(screen.getByRole('article', { name: '획득 XP 5' })).toBeTruthy()
+    expect(screen.getByRole('article', { name: '정답 0/1' })).toBeTruthy()
+    expect(screen.getByRole('article', { name: '남은 하트 3' })).toBeTruthy()
   })
 
   it('서울 25구 타자 도전 진입점은 지역 선택에서도 계속 노출된다', async () => {

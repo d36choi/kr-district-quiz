@@ -5,6 +5,7 @@ import { createRegionProgress, type RegionProgress } from './progress'
 import {
   buildConfirmationQuestions,
   buildCourse,
+  buildDueReviewCourse,
   type CourseQuestion,
 } from './courseGenerator'
 
@@ -33,6 +34,33 @@ function progressAt(
 }
 
 describe('course generation', () => {
+  it('오늘의 복습은 오래 밀린 지역부터 최대 5개만 출제한다', () => {
+    const regionIds = ['seoul:mapo', 'seoul:jongno', 'seoul:gangnam', 'gyeonggi:hanam', 'gyeonggi:suwon', 'gyeonggi:yongin']
+    const progressByRegion = Object.fromEntries(regionIds.map((regionId, index) => [
+      regionId,
+      progressAt(regionId, 1, `2026-09-0${index + 1}T00:00:00.000Z`),
+    ]))
+
+    const plan = buildDueReviewCourse(progressByRegion, now)
+
+    expect(plan?.scoredQuestions.map((question) => question.regionId)).toEqual(regionIds.slice(0, 5))
+  })
+
+  it('오늘의 복습은 만기 지역이 적으면 새 지역으로 채우지 않는다', () => {
+    const progressByRegion = {
+      'seoul:mapo': progressAt('seoul:mapo', 1, '2026-09-01T00:00:00.000Z'),
+      'gyeonggi:hanam': progressAt('gyeonggi:hanam', 2, '2026-09-02T00:00:00.000Z'),
+    }
+
+    const plan = buildDueReviewCourse(progressByRegion, now)
+
+    expect(plan?.scoredQuestions.map((question) => question.regionId)).toEqual(['seoul:mapo', 'gyeonggi:hanam'])
+  })
+
+  it('오늘의 복습 대상이 없으면 코스를 만들지 않는다', () => {
+    expect(buildDueReviewCourse({}, now)).toBeUndefined()
+  })
+
   it('관심 지역 2·인접 지역 2·복습 1의 5문제를 만든다', () => {
     const plan = buildCourse('gyeonggi:seongnam', fixtureProgress(), now, () => 0.42)
 

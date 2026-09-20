@@ -1,13 +1,37 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyScoredAnswer,
+  applyReviewAnswer,
   createRegionProgress,
   getNextReviewAt,
   isReviewDue,
 } from './progress'
 
 describe('region learning progress', () => {
-  it('정답은 단계를 올리고 1·3·7·21일 뒤에 복습하도록 예약한다', () => {
+  it('복습 정답은 서로 다른 현지 날짜에 2회 연속 맞혀야 한 단계 오른다', () => {
+    const initial = { ...createRegionProgress('seoul:mapo'), stage: 1 as const }
+    const first = applyReviewAnswer(initial, true, '2026-09-07T09:00:00+09:00')
+    const sameDay = applyReviewAnswer(first, true, '2026-09-07T20:00:00+09:00')
+    const promoted = applyReviewAnswer(sameDay, true, '2026-09-08T08:00:00+09:00')
+
+    expect(first.stage).toBe(1)
+    expect(sameDay.stage).toBe(1)
+    expect(promoted.stage).toBe(2)
+  })
+
+  it('복습 오답은 서로 다른 현지 날짜에 2회 연속 틀려야 한 단계 내려간다', () => {
+    const initial = { ...createRegionProgress('seoul:mapo'), stage: 2 as const }
+    const first = applyReviewAnswer(initial, false, '2026-09-07T09:00:00+09:00')
+    const reset = applyReviewAnswer(first, true, '2026-09-08T09:00:00+09:00')
+    const wrongAgain = applyReviewAnswer(reset, false, '2026-09-09T09:00:00+09:00')
+    const demoted = applyReviewAnswer(wrongAgain, false, '2026-09-10T09:00:00+09:00')
+
+    expect(first.stage).toBe(2)
+    expect(reset.stage).toBe(2)
+    expect(wrongAgain.stage).toBe(2)
+    expect(demoted.stage).toBe(1)
+  })
+  it('정답은 단계를 올리고 현지 날짜의 자정부터 복습하도록 예약한다', () => {
     const at = new Date('2026-09-07T00:00:00+09:00')
     const first = applyScoredAnswer(createRegionProgress('gyeonggi:seongnam'), true, at)
     const second = applyScoredAnswer(first, true, at)
@@ -24,14 +48,14 @@ describe('region learning progress', () => {
     expect(applyScoredAnswer(progress, false, new Date('2026-09-07T00:00:00+09:00')).stage).toBe(0)
   })
 
-  it('단계별 복습 간격은 0단계에서 없고 4단계에서 21일로 유지된다', () => {
+  it('단계별 복습 간격은 1·3·7·14일이며 해당 현지 날짜 자정에 열린다', () => {
     const at = new Date('2026-09-07T23:30:00+09:00')
 
     expect(getNextReviewAt(0, at)).toBeNull()
-    expect(getNextReviewAt(1, at)).toBe('2026-09-08T14:30:00.000Z')
-    expect(getNextReviewAt(2, at)).toBe('2026-09-10T14:30:00.000Z')
-    expect(getNextReviewAt(3, at)).toBe('2026-09-14T14:30:00.000Z')
-    expect(getNextReviewAt(4, at)).toBe('2026-09-28T14:30:00.000Z')
+    expect(getNextReviewAt(1, at)).toBe('2026-09-07T15:00:00.000Z')
+    expect(getNextReviewAt(2, at)).toBe('2026-09-09T15:00:00.000Z')
+    expect(getNextReviewAt(3, at)).toBe('2026-09-13T15:00:00.000Z')
+    expect(getNextReviewAt(4, at)).toBe('2026-09-20T15:00:00.000Z')
   })
 
   it('복습 예정 시각 전에는 미도래이고 정확한 시각부터 도래한다', () => {
