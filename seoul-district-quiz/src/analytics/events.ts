@@ -71,7 +71,7 @@ function isCount(value: unknown): value is number {
 }
 
 function isQuestionType(value: unknown): value is CourseQuestionType {
-  return value === 'recognition' || value === 'map-selection' || value === 'silhouette' || value === 'text-recall'
+  return value === 'recognition' || value === 'map-selection' || value === 'silhouette' || value === 'text-recall' || value === 'adjacency'
 }
 
 function fireAndForget(call: () => Promise<void> | void | undefined): void {

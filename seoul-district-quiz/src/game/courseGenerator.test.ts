@@ -163,11 +163,11 @@ describe('course generation', () => {
   })
 
   it.each([
-    { stage: 0 as const, expected: 'recognition' },
+    { stage: 0 as const, expected: 'map-selection' },
     { stage: 1 as const, expected: 'map-selection' },
-    { stage: 2 as const, expected: 'silhouette' },
-    { stage: 3 as const, expected: 'text-recall' },
-    { stage: 4 as const, expected: 'text-recall' },
+    { stage: 2 as const, expected: 'map-selection' },
+    { stage: 3 as const, expected: 'map-selection' },
+    { stage: 4 as const, expected: 'map-selection' },
   ])('$stage단계에 허용된 $expected 문제를 만든다', ({ stage, expected }) => {
     const progressByRegion = {
       'gyeonggi:seongnam': progressAt('gyeonggi:seongnam', stage),

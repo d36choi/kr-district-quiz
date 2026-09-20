@@ -43,6 +43,35 @@ export function useCompletionCelebration() {
         }, 0)
       }
 
+      const streak = element.querySelector<HTMLElement>('.completion-streak')
+      if (streak) {
+        const earnedSteps = streak.querySelectorAll<HTMLElement>('.completion-streak__step--earned')
+        const flame = streak.querySelector<HTMLElement>('.completion-streak__flame')
+        utils.set(earnedSteps, { opacity: 0.35, scale: 0.92 })
+        timeline.add(earnedSteps, {
+          opacity: 1,
+          scale: [0.92, 1.08, 1],
+          duration: 260,
+          delay: stagger(90),
+        }, 0)
+
+        if (flame && streak.classList.contains('completion-streak--perfect')) {
+          utils.set(flame, { opacity: 0.45, scale: 0.94, translateY: 8 })
+          timeline.add(flame, {
+            opacity: 1,
+            scale: [0.94, 1.06, 1],
+            translateY: 0,
+            duration: 320,
+          }, 550)
+          timeline.add(streak.querySelectorAll<HTMLElement>('.completion-streak__sparks span'), {
+            opacity: [0, 1, 0],
+            translateY: [0, -16],
+            duration: 420,
+            delay: stagger(60),
+          }, 720)
+        }
+      }
+
       utils.set(revealItems, { opacity: 0, translateY: 18 })
       timeline.add(revealItems, {
         opacity: 1,

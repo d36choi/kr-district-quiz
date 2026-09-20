@@ -12,6 +12,8 @@ export type Question = {
   questionType?: CourseQuestionType
   bucket?: CourseBucket
   scored?: boolean
+  referenceRegionId?: string
+  allowFullMap?: boolean
 }
 
 export const DISTRICT_NAME_BY_MAP_ID: Readonly<Record<string, string>> = {
@@ -69,6 +71,15 @@ export function shuffleDistricts(random = Math.random) {
   return districts
 }
 
+function shuffleValues<T>(values: readonly T[], random: () => number): T[] {
+  const result = [...values]
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const other = Math.floor(random() * (index + 1))
+    ;[result[index], result[other]] = [result[other], result[index]]
+  }
+  return result
+}
+
 function regionChoices(regionId: string, random: () => number) {
   const region = getRegion(regionId)
   if (!region) return []
@@ -78,7 +89,7 @@ function regionChoices(regionId: string, random: () => number) {
   const neighbors = getNeighbors(regionId)
     .flatMap((id) => getRegion(id) ?? [])
     .filter((candidate) => candidate.packId === region.packId && candidate.level === region.level)
-  const choices = [region, ...neighbors, ...siblings]
+  const choices = [region, ...shuffleValues(neighbors, random), ...shuffleValues(siblings, random)]
   const options = [...new Map(choices.map((candidate) => [candidate.id, candidate])).values()]
     .slice(0, 4)
     .map((candidate) => candidate.name)
@@ -106,6 +117,23 @@ function regionHint(regionId: string) {
 
 export function createRegionalQuestion(question: CourseQuestion, random = Math.random): Question {
   const usesText = question.questionType === 'text-recall'
+  const region = getRegion(question.regionId)
+  const reference = getRegion(question.referenceRegionId ?? '')
+  if (question.questionType === 'adjacency') {
+    if (!region || !reference || reference.parentId !== region.parentId
+      || !getNeighbors(reference.id).includes(region.id)) throw new RangeError('Invalid adjacent region question')
+    const distractors = Object.values(REGIONS_BY_ID).filter((candidate) => candidate.parentId === region.parentId
+      && candidate.id !== reference.id && !getNeighbors(reference.id).includes(candidate.id))
+    if (distractors.length < 3) throw new RangeError('Not enough unambiguous adjacency choices')
+    return {
+      district: region.name,
+      hint: `${appendJosa(region.name, '은', '는')} ${appendJosa(reference.name, '과', '와')} 경계를 맞대고 있어요.`,
+      mode: 'choice',
+      options: shuffleValues([region.name, ...shuffleValues(distractors, random).slice(0, 3).map((item) => item.name)], random),
+      regionId: region.id, referenceRegionId: reference.id,
+      questionType: 'adjacency', bucket: question.bucket, scored: question.scored,
+    }
+  }
   return {
     district: question.answer,
     hint: regionHint(question.regionId),
@@ -115,5 +143,6 @@ export function createRegionalQuestion(question: CourseQuestion, random = Math.r
     questionType: question.questionType,
     bucket: question.bucket,
     scored: question.scored,
+    allowFullMap: question.allowFullMap,
   }
 }

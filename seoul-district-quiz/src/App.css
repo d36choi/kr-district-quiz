@@ -1090,6 +1090,64 @@ input:focus-visible,
   grid-template-columns: 76px minmax(0, 1fr);
 }
 
+.question-copy > p {
+  grid-column: 2;
+  margin: 0;
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-body-small);
+  line-height: 1.5;
+}
+
+.guided-question > h1 {
+  margin: 0;
+  font-size: var(--font-size-title);
+  line-height: 1.35;
+  font-weight: 700;
+}
+
+.guided-question .seoul-map {
+  overflow: hidden;
+}
+
+.guided-question .district[role="button"]:not(.district--selected) .district-shape {
+  fill: var(--brand-soft);
+}
+
+.guided-question > p {
+  color: var(--color-text-subtle);
+  font-size: var(--font-size-body-small);
+  line-height: 1.5;
+}
+
+.guided-parent-map .map-card {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: center;
+  margin: var(--space-3) 0;
+}
+
+.guided-parent-map .seoul-map-stage {
+  min-height: 0;
+  height: 120px;
+}
+
+.guided-parent-map figcaption {
+  text-align: left;
+}
+
+.guided-map-labels text {
+  fill: var(--color-text-strong);
+  stroke: var(--color-bg);
+  paint-order: stroke;
+  font-weight: 700;
+}
+
+.guided-question .feedback-panel {
+  position: static;
+  margin-top: var(--space-4);
+}
+
 .question-copy--confirmation .question-number span:first-child {
   white-space: nowrap;
 }
@@ -1980,6 +2038,97 @@ input:focus-visible,
   transform-origin: center bottom;
 }
 
+.completion-streak {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  width: 248px;
+  max-width: 100%;
+  margin: 0 auto var(--space-4);
+}
+
+.completion-streak__flame {
+  display: grid;
+  height: 64px;
+  place-items: center;
+  color: var(--color-text-hint);
+  transform-origin: center bottom;
+}
+
+.completion-streak__flame svg {
+  fill: color-mix(in srgb, currentColor 18%, transparent);
+}
+
+.completion-streak--active .completion-streak__flame {
+  color: var(--xp-deep);
+}
+
+.completion-streak--perfect .completion-streak__flame {
+  color: var(--color-warning);
+}
+
+.completion-streak__track {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.completion-streak__track::before {
+  position: absolute;
+  top: 15px;
+  right: 16px;
+  left: 16px;
+  height: 2px;
+  background: var(--surface-border);
+  content: '';
+}
+
+.completion-streak__step {
+  position: relative;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 2px solid var(--surface-border);
+  border-radius: 50%;
+  color: var(--color-text-hint);
+  background: var(--color-bg);
+}
+
+.completion-streak__step:not(.completion-streak__step--earned) svg {
+  opacity: 0;
+}
+
+.completion-streak__step--earned {
+  border-color: var(--color-warning);
+  color: var(--xp-deep);
+  background: var(--color-warning);
+}
+
+.completion-streak__sparks {
+  position: absolute;
+  top: 15px;
+  left: 50%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.completion-streak__sparks span {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-warning);
+  opacity: 0;
+}
+
+.completion-streak__sparks span:nth-child(1) { left: -24px; top: 8px; }
+.completion-streak__sparks span:nth-child(2) { left: 20px; top: 3px; }
+.completion-streak__sparks span:nth-child(3) { left: 2px; top: -10px; }
+
 .completion-reveal,
 [data-counter-to] {
   transform-origin: center;
@@ -2219,6 +2368,11 @@ input:focus-visible,
   margin: 0;
   color: var(--color-text-strong);
   font-size: var(--font-size-subtitle);
+}
+
+.review-region-card > button {
+  width: 100%;
+  margin-top: var(--space-4);
 }
 
 .review-region-card ul {

@@ -95,7 +95,7 @@ async function openSeongnamCourse(records: PersonalRecordsV2 | null = emptyRecor
   fireEvent.change(search, { target: { value: '성남' } })
   fireEvent.click(screen.getByRole('button', { name: /^성남시/u }))
   fireEvent.click(screen.getByRole('button', { name: '성남시 5문제 시작' }))
-  return screen.findByText('01')
+  return screen.findByRole('heading', { name: /성남시.*(위치|어디)/u })
 }
 
 async function openLegacySeoulQuiz(mode: '객관식' | '주관식') {
@@ -107,15 +107,31 @@ async function openLegacySeoulQuiz(mode: '객관식' | '주관식') {
 }
 
 async function answerCurrentCourseQuestion(correct: boolean, beforeAnswer?: () => void) {
+  if (document.querySelector('.guided-question')) {
+    const heading = screen.getByRole('heading').textContent ?? ''
+    const region = Object.values(REGIONS_BY_ID).find((item) => heading.startsWith(item.name))!
+    await waitFor(() => expect(document.querySelector('.guided-question svg [role="button"]')).toBeTruthy())
+    const buttons = Array.from(document.querySelectorAll<SVGGElement>('.guided-question svg [role="button"]'))
+    const option = buttons.find((node) => (node.dataset.regionId === region.id) === correct)!
+    fireEvent.click(option)
+    beforeAnswer?.()
+    fireEvent.click(screen.getByRole('button', { name: '정답 확인' }))
+    fireEvent.click(screen.getByRole('button', { name: '계속하기' }))
+    return
+  }
   const activeRegion = await waitFor(() => {
     const node = document.querySelector<SVGGElement>('[aria-current="true"]')
     expect(node).toBeTruthy()
     return node!
   })
-  const answer = activeRegion?.getAttribute('aria-label')?.split(',')[0]
+  let answer = activeRegion?.getAttribute('aria-label')?.split(',')[0]
   expect(answer).toBeTruthy()
   const answerGroup = screen.getByRole('group', { name: '답안 선택' })
   const options = within(answerGroup).getAllByRole('button')
+  if (screen.queryByText('맞닿은 지역 찾기')) {
+    const reference = REGIONS_BY_ID[activeRegion.getAttribute('data-region-id') ?? '']
+    answer = options.find((option) => reference.neighborIds.some((id) => REGIONS_BY_ID[id]?.name === option.textContent))?.textContent ?? undefined
+  }
   const option = correct
     ? within(answerGroup).getByRole('button', { name: answer })
     : options.find((candidate) => candidate.textContent !== answer)
@@ -147,6 +163,51 @@ afterEach(() => {
 })
 
 describe('regional learning app flow', () => {
+  it('첫 경기 문제에서도 정답 위치를 미리 보여주지 않고 세 위치를 고른다', async () => {
+    await openSeongnamCourse()
+    const map = await screen.findByRole('group', { name: '경기 31개 시·군 지도' })
+    expect(screen.queryByRole('button', { name: '위치 확인했어요' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '이름 단서 보기' })).toBeNull()
+    expect(map.querySelector('[aria-current="true"]')).toBeNull()
+    expect(analytics.trackAnswerSubmitted).not.toHaveBeenCalled()
+    const choices = within(screen.getByRole('group', { name: '위치 선택' }))
+    expect(choices.getAllByRole('button').map((button) => button.textContent)).toEqual(['A 위치', 'B 위치', 'C 위치'])
+    await waitFor(() => expect(within(map).getAllByRole('button').map((button) => button.getAttribute('aria-label'))).toEqual(expect.arrayContaining(['A 위치', 'B 위치', 'C 위치'])))
+    expect(screen.queryByRole('button', { name: '경기 전체 지도에 도전' })).toBeNull()
+    fireEvent.click(within(map).getByRole('button', { name: 'A 위치' }))
+    fireEvent.click(screen.getByRole('button', { name: '정답 확인' }))
+    expect(map.querySelector('[aria-current="true"]')?.getAttribute('aria-label')).toContain('성남시')
+  })
+
+  it('세부 구 문제에는 경기 내 상위 도시 위치를 함께 보여준다', async () => {
+    await openSeongnamCourse()
+    await answerCurrentCourseQuestion(true)
+    expect(await screen.findByRole('complementary', { name: '성남시의 경기 내 위치' })).toBeTruthy()
+    expect(screen.getByRole('group', { name: '성남시 세부 구 지도' })).toBeTruthy()
+  })
+
+  it('오답 기록이 없으면 오답 중심 시작 버튼을 표시하지 않는다', () => {
+    render(<App initialRecords={emptyRecords()} />)
+    expect(screen.queryByRole('button', { name: '오답 중심 5문제' })).toBeNull()
+  })
+
+  it('저장된 0단계 오답으로 홈에서 시작해 5문제를 완주하고 다시 풀 수 있다', async () => {
+    const records = emptyRecords()
+    records.progressByRegion['gyeonggi:seongnam'] = {
+      ...createRegionProgress('gyeonggi:seongnam'), attempts: 1,
+    }
+    render(<App initialRecords={records} />)
+    fireEvent.click(screen.getByRole('button', { name: '오답 중심 5문제' }))
+    for (let index = 0; index < 5; index += 1) await answerCurrentCourseQuestion(true)
+    expect(screen.getByRole('heading', { name: '5문제를 풀었어요' })).toBeTruthy()
+    expect(analytics.trackReviewSessionCompleted).toHaveBeenCalledExactlyOnceWith({
+      scoredCount: 5, correctCount: 5, stageUpCount: 5,
+    })
+    fireEvent.click(screen.getByRole('button', { name: '한 세트 더' }))
+    expect(await screen.findByRole('heading', { name: '성남시는 지도에서 어디일까요?' })).toBeTruthy()
+    expect(analytics.trackCourseStarted).toHaveBeenCalledTimes(2)
+  })
+
   it('서울 객관식은 보기만 답안으로 제공한다', async () => {
     const map = await openLegacySeoulQuiz('객관식')
 
@@ -182,21 +243,23 @@ describe('regional learning app flow', () => {
     expect(await screen.findByRole('heading', { name: '성남시는 지도에서 어디일까요?' })).toBeTruthy()
   })
 
-  it('지도 선택 문제는 지도만 답안으로 제공한다', async () => {
+  it('경기 지도 선택은 A B C 세 위치와 주변 단서를 제공한다', async () => {
     render(<App initialRecords={recordsWithDueReview('gyeonggi:seongnam')} />)
     fireEvent.click(screen.getByRole('button', { name: '오늘의 5문제' }))
 
-    expect(await screen.findByText('지도에서 성남시를 선택해 주세요.')).toBeTruthy()
+    expect(await screen.findByText('주변 지역 이름을 기준으로 위치를 찾아보세요.')).toBeTruthy()
+    expect(within(screen.getByRole('group', { name: '위치 선택' })).getAllByRole('button')).toHaveLength(3)
     expect(screen.queryByText('지역 목록에서 선택')).toBeNull()
     expect(screen.queryByRole('searchbox', { name: '지역명 검색' })).toBeNull()
     expect(screen.getByRole('group', { name: '경기 31개 시·군 지도' })).toBeTruthy()
   })
 
-  it('받침 없는 지역명의 완료 문구에 를을 붙인다', async () => {
+  it('완료 화면은 푼 문제 수와 실제 오른 지역 수를 표시한다', async () => {
     await openSeongnamCourse()
     for (let index = 0; index < 5; index += 1) await answerCurrentCourseQuestion(true)
 
-    expect(await screen.findByRole('heading', { name: '성남시를한 번 더 익혔어요' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: '5문제를 풀었어요' })).toBeTruthy()
+    expect(screen.getByText('단계가 오른 지역 5개')).toBeTruthy()
   })
 
   it('오늘의 5문제는 실제 승급만 집계하고 확인 문제와 재방문은 복습 완료를 중복 기록하지 않는다', async () => {
@@ -221,17 +284,14 @@ describe('regional learning app flow', () => {
     render(<StrictMode><App initialRecords={records} /></StrictMode>)
     expect(analytics.trackReviewPromptShown).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByRole('button', { name: '오늘의 5문제' }))
-    const map = await screen.findByRole('group', { name: '경기 31개 시·군 지도' })
-    fireEvent.click(within(map).getByRole('button', { name: /^성남시/u }))
-    fireEvent.click(screen.getByRole('button', { name: '정답 확인' }))
-    fireEvent.click(screen.getByRole('button', { name: '계속하기' }))
+    await answerCurrentCourseQuestion(true)
     for (let index = 1; index < 5; index += 1) await answerCurrentCourseQuestion(index !== 1)
     expect(analytics.trackAnswerSubmitted).toHaveBeenCalledTimes(5)
     expect(analytics.trackAnswerSubmitted.mock.calls[0][0]).toEqual({
       regionId: 'gyeonggi:seongnam', questionType: 'map-selection', correct: true, stageBefore: 1,
     })
     expect(new Set(analytics.trackAnswerSubmitted.mock.calls.map(([answer]) => answer.regionId)).size).toBe(5)
-    expect(screen.getByText('확인 문제')).toBeTruthy()
+    expect(screen.getByText('오답 복습')).toBeTruthy()
     await answerCurrentCourseQuestion(true)
     expect(analytics.trackCourseCompleted).toHaveBeenCalledExactlyOnceWith({
       courseId: 'region:gyeonggi:seongnam', scoredCount: 5, correctCount: 4,
@@ -293,7 +353,7 @@ describe('regional learning app flow', () => {
     expect(analytics.trackAnswerSubmitted).toHaveBeenCalledTimes(1)
     expect(analytics.trackAnswerSubmitted).toHaveBeenCalledWith({
       regionId: 'gyeonggi:seongnam',
-      questionType: 'recognition',
+      questionType: 'map-selection',
       correct: true,
       stageBefore: 0,
     })
@@ -378,15 +438,16 @@ describe('regional learning app flow', () => {
     await answerCurrentCourseQuestion(false)
     for (let index = 1; index < 5; index += 1) await answerCurrentCourseQuestion(true)
 
-    expect(await screen.findByText('확인 문제')).toBeTruthy()
+    expect(await screen.findByText('오답 복습')).toBeTruthy()
     await answerCurrentCourseQuestion(true)
     expect(await screen.findByText(/성남시 숙련도/u)).toBeTruthy()
     expect(screen.getByText('처음 봄 → 처음 봄')).toBeTruthy()
   })
 
-  it('실루엣 문제는 해당 SVG 도형에 집중하고 새 세션으로 3단계에 진입한다', async () => {
+  it('2단계도 실루엣 대신 주변 위치를 고르고 새 세션으로 3단계에 진입한다', async () => {
     await openSeongnamCourse(recordsAtStageTwo('gyeonggi:seongnam'))
-    expect((await screen.findByText(/문제 지역이 강조/u)).closest('figure')?.classList.contains('map-card--silhouette')).toBe(true)
+    expect(document.querySelector('.map-card--silhouette')).toBeNull()
+    expect(within(screen.getByRole('group', { name: '위치 선택' })).getAllByRole('button')).toHaveLength(3)
     for (let index = 0; index < 5; index += 1) await answerCurrentCourseQuestion(true)
     expect(await screen.findByText('익숙해지는 중 → 익숙함')).toBeTruthy()
   })
@@ -422,7 +483,7 @@ describe('regional learning app flow', () => {
     // An unscored replay crossing midnight must not count as another learning day.
     vi.setSystemTime(new Date('2026-09-11T15:01:00.000Z'))
     for (let index = 0; index < 2; index += 1) {
-      expect(screen.getByText('확인 문제')).toBeTruthy()
+      expect(screen.getByText('오답 복습')).toBeTruthy()
       await answerCurrentCourseQuestion(true, () => { elapsedMs += 2500 })
     }
 

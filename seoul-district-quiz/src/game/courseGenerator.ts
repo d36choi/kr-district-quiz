@@ -9,6 +9,7 @@ export type CourseQuestionType =
   | 'map-selection'
   | 'silhouette'
   | 'text-recall'
+  | 'adjacency'
 
 export type CourseQuestion = Readonly<{
   regionId: string
@@ -16,6 +17,8 @@ export type CourseQuestion = Readonly<{
   bucket: CourseBucket
   questionType: CourseQuestionType
   scored: boolean
+  referenceRegionId?: string
+  allowFullMap?: boolean
 }>
 
 export type CoursePlan = Readonly<{
@@ -111,13 +114,52 @@ function makeQuestion(
   bucket: CourseBucket,
   progressByRegion: ProgressByRegion,
 ): CourseQuestion {
+  const progress = progressByRegion[region.id]
+  if (region.packId === 'gyeonggi') return Object.freeze({
+    regionId: region.id, answer: region.name, bucket,
+    questionType: 'map-selection', scored: true,
+    allowFullMap: (progress?.stage ?? 0) >= 3,
+  })
+  const defaultType = questionTypeFor(stageFor(region.id, progressByRegion))
+  const questionType = progress?.lastQuestionType === defaultType
+    ? defaultType === 'map-selection' ? 'recognition' : 'map-selection'
+    : defaultType
+  const reference = bucket === 'neighbor' && progress?.attempts && progress.lastQuestionType !== 'adjacency'
+    ? getNeighbors(region.id).flatMap((id) => getRegion(id) ?? [])
+      .find((candidate) => candidate.packId === region.packId && candidate.parentId === region.parentId
+        && ELIGIBLE_REGIONS.filter((other) => other.parentId === region.parentId
+          && other.id !== candidate.id && !getNeighbors(candidate.id).includes(other.id)).length >= 3)
+    : undefined
   return Object.freeze({
     regionId: region.id,
     answer: region.name,
     bucket,
-    questionType: questionTypeFor(stageFor(region.id, progressByRegion)),
+    questionType: reference ? 'adjacency' : questionType,
+    ...(reference ? { referenceRegionId: reference.id } : {}),
     scored: true,
   })
+}
+
+/** Missed regions remain eligible even when stage zero has no review date. */
+export function getWeakRegions(progressByRegion: ProgressByRegion): RegionProgress[] {
+  return Object.values(progressByRegion)
+    .filter((progress) => getRegion(progress.regionId)?.parentId
+      && progress.attempts > progress.correctAnswers && progress.stage < 3)
+    .toSorted((left, right) => left.correctAnswers / left.attempts - right.correctAnswers / right.attempts
+      || left.stage - right.stage || left.regionId.localeCompare(right.regionId))
+}
+
+export function buildWeakReviewCourse(
+  progressByRegion: ProgressByRegion, now: ReviewDate, random: Random,
+): CoursePlan | undefined {
+  const weak = getWeakRegions(progressByRegion)
+  if (!weak.length) return undefined
+  const targetRegionId = weak[0].regionId
+  const fallback = buildCourse(targetRegionId, progressByRegion, now, random)
+  const ids = [...new Set([...weak.map((progress) => progress.regionId),
+    ...fallback.scoredQuestions.map((question) => question.regionId)])].slice(0, 5)
+  return Object.freeze({ targetRegionId, scoredQuestions: Object.freeze(ids.map((id) =>
+    makeQuestion(getRegion(id)!, 'review', progressByRegion))) })
 }
 
 function orderReviewCandidates(
@@ -247,6 +289,9 @@ export function buildConfirmationQuestions(
   wrongQuestions: readonly CourseQuestion[],
 ): readonly CourseQuestion[] {
   return Object.freeze(
-    wrongQuestions.slice(0, 2).map((question) => Object.freeze({ ...question, scored: false })),
+    wrongQuestions.slice(0, 2).map((question) => Object.freeze({ ...question, scored: false,
+      ...(getRegion(question.regionId)?.packId === 'gyeonggi'
+        ? { questionType: 'map-selection' as const, allowFullMap: false } : {}),
+    })),
   )
 }

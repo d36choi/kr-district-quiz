@@ -30,6 +30,10 @@ export type RegionPackMapProps = {
   showRegionList?: boolean
   /** Preserves existing Seoul quiz instructions without revealing its answer. */
   caption?: string
+  mapLabels?: Readonly<Record<string, string>>
+  accessibleRegionLabels?: Readonly<Record<string, string>>
+  focusRegionIds?: readonly string[]
+  selectableRegionIds?: readonly string[]
 }
 
 const EMPTY_IDS: readonly string[] = []
@@ -122,6 +126,15 @@ function ScopedRegionMap(props: RegionPackMapProps & { parentRegionId?: string }
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [listOpen, setListOpen] = useState(false)
   const pathNodes = useRef(new Map<string, SVGPathElement>())
+  useEffect(() => {
+    const svg = [...pathNodes.current.values()][0]?.ownerSVGElement
+    if (!svg?.viewBox?.baseVal) return
+    const scale = Math.max(svg.viewBox.baseVal.width, svg.viewBox.baseVal.height) / 320
+    svg.querySelectorAll('.guided-map-labels text').forEach((node) => {
+      node.setAttribute('font-size', String(15 * scale))
+      node.setAttribute('stroke-width', String(3 * scale))
+    })
+  })
   const onMapLoadFailedRef = useRef(onMapLoadFailed)
   // An explicitly undefined controlled value means the parent cleared selection.
   const isSelectionControlled = Object.prototype.hasOwnProperty.call(props, 'selectedRegionId')
@@ -156,6 +169,7 @@ function ScopedRegionMap(props: RegionPackMapProps & { parentRegionId?: string }
   }, [loadState.status, onReady])
 
   const selectRegion = (id: string, source: RegionSelectionSource) => {
+    if (props.selectableRegionIds && !props.selectableRegionIds.includes(id)) return
     if (!isSelectionControlled) setInternalSelection(id)
     onRegionSelect?.(id, source)
   }
@@ -187,6 +201,21 @@ function ScopedRegionMap(props: RegionPackMapProps & { parentRegionId?: string }
     {loadState.status === 'ready' && paths.length > 0 ? <div className="seoul-map-stage">
       <svg className="seoul-map region-pack-map__svg" viewBox={loadState.data.viewBox} role="group" aria-label={mapLabel} ref={(node) => {
         if (!node) return
+        if (props.focusRegionIds?.length) {
+          const boxes = props.focusRegionIds.flatMap((id) => {
+            const path = node.querySelector<SVGPathElement>(`[data-region-id="${id}"] .district-shape`)
+            return path?.getBBox ? [path.getBBox()] : []
+          })
+          if (boxes.length) {
+            const x = Math.min(...boxes.map((box) => box.x))
+            const y = Math.min(...boxes.map((box) => box.y))
+            const width = Math.max(...boxes.map((box) => box.x + box.width)) - x
+            const height = Math.max(...boxes.map((box) => box.y + box.height)) - y
+            const pad = Math.max(width, height) * 0.12
+            node.setAttribute('viewBox', `${x - pad} ${y - pad} ${width + pad * 2} ${height + pad * 2}`)
+          }
+          return
+        }
         const focusNode = variant === 'silhouette' && activeRegionId
           ? node.querySelector<SVGPathElement>(`[data-region-id="${activeRegionId}"] .district-shape`)
           : parentRegionId
@@ -199,6 +228,7 @@ function ScopedRegionMap(props: RegionPackMapProps & { parentRegionId?: string }
       }}>
         <g className="region-boundaries">
           {paths.map((region) => {
+            const canSelect = interactive && (!props.selectableRegionIds || props.selectableRegionIds.includes(region.regionId))
             const isActive = region.regionId === activeRegionId
             const isSelected = interactive && region.regionId === selectedRegionId
             const isSolved = solvedSet.has(region.regionId)
@@ -206,10 +236,10 @@ function ScopedRegionMap(props: RegionPackMapProps & { parentRegionId?: string }
             const stateNames = [isActive ? '문제 지역' : '', isSolved ? '맞힌 지역' : '', isAdjacent ? '인접 지역' : '', isSelected ? '선택됨' : ''].filter(Boolean)
             return <g key={region.regionId} data-region-id={region.regionId}
               className={['district', isAdjacent ? 'district--adjacent' : '', isSolved && !isActive ? 'district--solved' : '', isActive ? `district--${resultState}` : '', isSelected ? 'district--selected' : ''].filter(Boolean).join(' ')}
-              role={interactive ? 'button' : undefined} tabIndex={interactive ? 0 : undefined}
-              aria-current={isActive ? 'true' : undefined} aria-label={[region.name, ...stateNames].join(', ')} aria-pressed={interactive ? isSelected : undefined}
-              onClick={interactive ? () => selectRegion(region.regionId, 'map') : undefined}
-              onKeyDown={interactive ? (event) => {
+              role={canSelect ? 'button' : undefined} tabIndex={canSelect ? 0 : undefined}
+              aria-current={isActive ? 'true' : undefined} aria-label={[props.accessibleRegionLabels?.[region.regionId] ?? region.name, ...stateNames].join(', ')} aria-pressed={canSelect ? isSelected : undefined}
+              onClick={canSelect ? () => selectRegion(region.regionId, 'map') : undefined}
+              onKeyDown={canSelect ? (event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault()
                   selectRegion(region.regionId, 'map')
@@ -223,6 +253,20 @@ function ScopedRegionMap(props: RegionPackMapProps & { parentRegionId?: string }
             </g>
           })}
         </g>
+        {props.mapLabels ? <g className="guided-map-labels" aria-hidden="true" pointerEvents="none">
+          {paths.filter((region) => props.mapLabels?.[region.regionId]).map((region) => <text key={region.regionId} textAnchor="middle" dominantBaseline="central" ref={(node) => {
+            const path = pathNodes.current.get(region.regionId)
+            if (!node || !path?.getBBox) return
+            const box = path.getBBox()
+            const svg = node.ownerSVGElement
+            const view = svg?.viewBox.baseVal
+            const scale = view ? Math.max(view.width, view.height) / 320 : 1
+            node.setAttribute('x', String(box.x + box.width / 2))
+            node.setAttribute('y', String(box.y + box.height / 2))
+            node.setAttribute('font-size', String(15 * scale))
+            node.setAttribute('stroke-width', String(3 * scale))
+          }}>{props.mapLabels?.[region.regionId]}</text>)}
+        </g> : null}
       </svg>
       {variant === 'typing' && solvedRegionIds.length > 0 ? <div className="map-label-layer" aria-hidden="true">
         {regions.filter((region) => solvedSet.has(region.id)).map((region) => <span key={region.id} className="district-label" ref={(node) => {
@@ -243,7 +287,7 @@ function ScopedRegionMap(props: RegionPackMapProps & { parentRegionId?: string }
       if (loadState.status === 'ready') setListOpen(event.currentTarget.open)
     }}>
       <summary>지역 목록에서 선택</summary>
-      <RegionNameList regions={regions} selectedRegionId={selectedRegionId} onRegionSelect={selectRegion} />
+      <RegionNameList regions={props.selectableRegionIds ? regions.filter((region) => props.selectableRegionIds?.includes(region.id)) : regions} selectedRegionId={selectedRegionId} onRegionSelect={selectRegion} />
     </details> : null}
   </figure>
 }
