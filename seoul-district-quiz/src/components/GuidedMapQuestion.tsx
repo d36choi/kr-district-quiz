@@ -33,6 +33,7 @@ export function GuidedMapQuestion({ question, questionIndex, totalQuestions, res
     <p className="guided-progress">{question.scored === false ? '오답 복습' : `${questionIndex + 1} / ${totalQuestions} 문제`}</p>
     <h1>{appendJosa(region.name, '은', '는')} 지도에서 어디일까요?</h1>
     <p>표시된 위치 중 하나를 골라 주세요.</p>
+    {question.guidedCorrection ? <p role="status">5번째 시도예요. 정답 {region.name}를 선택해 주세요.</p> : null}
     {parent ? <aside className="guided-parent-map" aria-label={`${parent.name}의 경기 내 위치`}>
       <RegionPackMap packId="gyeonggi" activeRegionId={parent.id} interactive={false} showRegionList={false}
         caption={`${region.name}는 ${parent.name}에 속해 있어요. 아래는 ${parent.name} 안의 구 지도예요.`}

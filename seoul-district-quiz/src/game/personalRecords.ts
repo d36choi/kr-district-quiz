@@ -4,6 +4,7 @@ import {
   applyScoredAnswer,
   applyReviewAnswer,
   createRegionProgress,
+  getNextReviewAt,
   type LearningSession,
   type ProgressStage,
   type RegionProgress,
@@ -96,7 +97,7 @@ function parseRegionProgress(key: string, value: unknown): RegionProgress | unde
   const attempts = parseCount(value.attempts)
   const correctAnswers = parseCount(value.correctAnswers)
   const lastAnsweredAt = parseNullableTimestamp(value.lastAnsweredAt)
-  const nextReviewAt = parseNullableTimestamp(value.nextReviewAt)
+  const storedNextReviewAt = parseNullableTimestamp(value.nextReviewAt)
   const lastQuestionType = typeof value.lastQuestionType === 'string' ? value.lastQuestionType : null
   const promotionSession = value.lastPromotionSessionId
 
@@ -104,6 +105,12 @@ function parseRegionProgress(key: string, value: unknown): RegionProgress | unde
     stage === undefined
     || correctAnswers > attempts
   ) return undefined
+
+  const nextReviewAt = storedNextReviewAt ?? (
+    stage > 0 && attempts > 0 && lastAnsweredAt
+      ? getNextReviewAt(stage, new Date(lastAnsweredAt))
+      : null
+  )
 
   const progress: RegionProgress = {
     regionId: key,

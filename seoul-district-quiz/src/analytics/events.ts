@@ -44,6 +44,11 @@ type ReviewSessionCompletedArgs = Readonly<{
   stageUpCount: number
 }>
 
+type ReviewCorrectionCompletedArgs = Readonly<{
+  regionId: string
+  attemptCount: number
+}>
+
 type MapLoadFailedArgs = Readonly<{
   packId: RegionPackId
   assetVersion: string
@@ -160,6 +165,16 @@ export function trackReviewSessionCompleted(args: ReviewSessionCompletedArgs): v
     scored_count: scoredCount,
     correct_count: correctCount,
     stage_up_count: stageUpCount,
+  })
+}
+
+export function trackReviewCorrectionCompleted(args: ReviewCorrectionCompletedArgs): void {
+  if (!isPayload(args) || !isRegionId(args.regionId) || !isCount(args.attemptCount)
+    || args.attemptCount < 2 || args.attemptCount > 5) return
+  const { regionId, attemptCount } = args
+  logEvent('review_correction_completed', {
+    region_id: regionId,
+    attempt_count: attemptCount,
   })
 }
 

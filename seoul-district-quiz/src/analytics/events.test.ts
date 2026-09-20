@@ -26,6 +26,7 @@ import {
   trackRegionPackViewed,
   trackRegionSelected,
   trackReviewPromptShown,
+  trackReviewCorrectionCompleted,
   trackReviewSessionCompleted,
   triggerAnswerHaptic,
 } from './events'
@@ -152,6 +153,16 @@ describe('regional analytics payload contract', () => {
     expect(Object.values(sdk.log.mock.calls[1][0].params).every((value) => typeof value === 'number')).toBe(true)
   })
 
+  it('logs correction success separately from the initial review answer', () => {
+    trackReviewCorrectionCompleted({ regionId: 'gyeonggi:seongnam', attemptCount: 5 })
+
+    expect(sdk.log).toHaveBeenCalledWith({
+      log_name: 'review_correction_completed',
+      log_type: 'event',
+      params: { region_id: 'gyeonggi:seongnam', attempt_count: 5 },
+    })
+  })
+
   it('logs map failure with stable ids and never includes free-form error text', () => {
     trackMapLoadFailed({
       packId: 'gyeonggi',
@@ -191,6 +202,9 @@ describe('non-blocking SDK boundary', () => {
       courseId: ['free text', 'region:unknown', {}, null], scoredCount: [-1, NaN, Infinity, 1.5, '5', {}], correctCount: [-1, NaN, Infinity, 1.5, '4', 6],
     } },
     { track: trackReviewPromptShown, payload: { dueCount: 1 }, invalid: { dueCount: [-1, NaN, Infinity, 0.5, '1', {}, null] } },
+    { track: trackReviewCorrectionCompleted, payload: { regionId: 'gyeonggi:seongnam', attemptCount: 2 }, invalid: {
+      regionId: ['unknown', {}, null], attemptCount: [-1, 0, 1, 6, NaN, Infinity, 2.5, '2'],
+    } },
     { track: trackReviewSessionCompleted, payload: { scoredCount: 5, correctCount: 4, stageUpCount: 1 }, invalid: {
       scoredCount: [-1, NaN, Infinity, 1.5, '5'], correctCount: [-1, NaN, Infinity, 0.5, '4', 6], stageUpCount: [-1, NaN, Infinity, 0.5, '1', {}, 5],
     } },

@@ -16,6 +16,7 @@ import {
   trackRegionPackViewed,
   trackRegionSelected,
   trackReviewPromptShown,
+  trackReviewCorrectionCompleted,
   trackReviewSessionCompleted,
   triggerAnswerHaptic,
   type RegionSelectionSource,
@@ -725,6 +726,7 @@ function QuizScreen({
         <div className="question-number"><span>{isConfirmation ? '확인 문제' : String(questionIndex + 1).padStart(2, '0')}</span><span>{String(totalQuestions).padStart(2, '0')}</span></div>
         <h1>{question.regionId ? heading : <>지도에 표시된 자치구는<br />어디일까요?</>}</h1>
         {isAdjacency ? <p>{replayCopy.adjacencyLabel}</p> : null}
+        {question.guidedCorrection ? <p role="status">5번째 시도예요. 정답 {question.district}를 선택해 주세요.</p> : null}
       </section>
 
       {region ? <RegionPackMap
@@ -1055,7 +1057,8 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
       const nextCombo = combo + 1
       setCombo(nextCombo)
       setCorrectCount((count) => count + 1)
-      setXp((score) => score + 10 + (nextCombo >= 3 ? 5 : 0))
+      setXp((score) => score + (regionalSession?.origin === 'due-review' ? 10 : 10 + (nextCombo >= 3 ? 5 : 0)))
+      if (regionalSession?.origin === 'due-review') setHearts((count) => Math.min(3, count + 1))
     } else if (isScored) {
       setCombo(0)
       setHearts((count) => Math.max(0, count - 1))
@@ -1099,15 +1102,17 @@ function App({ initialRecords }: { initialRecords?: PersonalRecordsV2 }) {
           wrongQuestions: correct ? session.wrongQuestions : [...session.wrongQuestions, courseQuestion],
         } : session)
       } else if (isDueCorrection) {
-        setRegionalSession((session) => {
-          if (!session) return session
-          const attempts = (session.attemptsByRegion[currentQuestion.regionId!] ?? 1) + 1
-          if (!correct && attempts < 5) setQuestions((items) => [...items, currentQuestion])
-          return {
-            ...session,
-            attemptsByRegion: { ...session.attemptsByRegion, [currentQuestion.regionId!]: attempts },
-          }
-        })
+        const regionId = currentQuestion.regionId
+        const attempts = (regionalSession.attemptsByRegion[regionId] ?? 1) + 1
+        if (correct) {
+          trackReviewCorrectionCompleted({ regionId, attemptCount: attempts })
+        } else if (attempts < 5) {
+          setQuestions((items) => [...items, { ...currentQuestion, guidedCorrection: attempts === 4 }])
+        }
+        setRegionalSession((session) => session ? {
+          ...session,
+          attemptsByRegion: { ...session.attemptsByRegion, [regionId]: attempts },
+        } : session)
       }
     } else {
       updateRecords((currentRecords) => recordAnswer(currentRecords, {

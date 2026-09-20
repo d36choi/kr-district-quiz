@@ -24,6 +24,7 @@ const analytics = vi.hoisted(() => ({
   trackRegionPackViewed: vi.fn(),
   trackRegionSelected: vi.fn(),
   trackReviewPromptShown: vi.fn(),
+  trackReviewCorrectionCompleted: vi.fn(),
   trackReviewSessionCompleted: vi.fn(),
   triggerAnswerHaptic: vi.fn(),
 }))
@@ -432,6 +433,46 @@ describe('regional learning app flow', () => {
     expect(await screen.findByRole('heading', { name: '1문제를 풀었어요' })).toBeTruthy()
     expect(screen.getByRole('article', { name: '획득 XP 5' })).toBeTruthy()
     expect(screen.getByRole('article', { name: '정답 0/1' })).toBeTruthy()
+    expect(screen.getByRole('article', { name: '남은 하트 3' })).toBeTruthy()
+    expect(analytics.trackReviewCorrectionCompleted).toHaveBeenCalledWith({
+      regionId: 'gyeonggi:seongnam',
+      attemptCount: 2,
+    })
+  })
+
+  it('오늘의 복습은 5번째 시도에서 정답 선택을 안내한다', async () => {
+    render(<App initialRecords={recordsWithDueReview('gyeonggi:seongnam')} />)
+    fireEvent.click(screen.getByRole('button', { name: '오늘의 복습 시작' }))
+
+    for (let attempt = 1; attempt <= 4; attempt += 1) await answerCurrentCourseQuestion(false)
+
+    expect((await screen.findByRole('status')).textContent).toBe('5번째 시도예요. 정답 성남시를 선택해 주세요.')
+    await answerCurrentCourseQuestion(true)
+    expect(analytics.trackReviewCorrectionCompleted).toHaveBeenCalledWith({
+      regionId: 'gyeonggi:seongnam',
+      attemptCount: 5,
+    })
+  })
+
+  it('오늘의 복습 최초 정답은 10 XP를 주고 앞선 오답으로 잃은 하트를 회복한다', async () => {
+    const records = recordsWithDueReview('gyeonggi:seongnam')
+    records.progressByRegion['gyeonggi:suwon'] = {
+      ...createRegionProgress('gyeonggi:suwon'),
+      stage: 1,
+      attempts: 1,
+      correctAnswers: 1,
+      lastAnsweredAt: '2026-09-01T00:00:00.000Z',
+      nextReviewAt: '2026-09-03T00:00:00.000Z',
+    }
+    render(<App initialRecords={records} />)
+    fireEvent.click(screen.getByRole('button', { name: '오늘의 복습 시작' }))
+
+    await answerCurrentCourseQuestion(false)
+    await answerCurrentCourseQuestion(true)
+    for (let attempt = 2; attempt <= 5; attempt += 1) await answerCurrentCourseQuestion(false)
+
+    expect(await screen.findByRole('heading', { name: '2문제를 풀었어요' })).toBeTruthy()
+    expect(screen.getByRole('article', { name: '획득 XP 10' })).toBeTruthy()
     expect(screen.getByRole('article', { name: '남은 하트 3' })).toBeTruthy()
   })
 

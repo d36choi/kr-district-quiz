@@ -14,6 +14,7 @@ export type Question = {
   scored?: boolean
   referenceRegionId?: string
   allowFullMap?: boolean
+  guidedCorrection?: boolean
 }
 
 export const DISTRICT_NAME_BY_MAP_ID: Readonly<Record<string, string>> = {

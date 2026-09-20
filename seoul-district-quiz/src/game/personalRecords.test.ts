@@ -110,7 +110,7 @@ describe('personal records V2', () => {
     expect(parsed.progressByRegion).toEqual({
       'seoul:mapo': {
         regionId: 'seoul:mapo', stage: 2, attempts: 3, correctAnswers: 2,
-        lastAnsweredAt: '2026-09-08T03:00:00.000Z', nextReviewAt: null,
+        lastAnsweredAt: '2026-09-08T03:00:00.000Z', nextReviewAt: '2026-09-10T15:00:00.000Z',
         lastQuestionType: 'map-selection', lastPromotionSessionId: 'course-a',
       },
     })
