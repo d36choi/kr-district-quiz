@@ -500,7 +500,7 @@ describe('regional learning app flow', () => {
     for (let index = 0; index < 5; index += 1) await answerCurrentCourseQuestion(true)
 
     fireEvent.click(screen.getByRole('button', { name: '오늘 학습 마치기' }))
-    expect(await screen.findByRole('heading', { name: /오늘의 지역 학습/u })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: '한국 지역 이름 맞추기' })).toBeTruthy()
     expect(screen.getByText(/최근 학습 · 성남시/u)).toBeTruthy()
   })
 

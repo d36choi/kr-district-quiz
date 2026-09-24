@@ -347,7 +347,7 @@ function HomeScreen({
       <section className="home-hero">
         <div className="home-copy">
           <p className="home-kicker">매일 1~2분, 지도 한 바퀴</p>
-          <h1 className="max-w-full">오늘의 지역 학습</h1>
+          <h1 className="max-w-full">한국 지역 이름 맞추기</h1>
           <p className="home-description">관심 지역과 주변 지역을<br />다섯 문제로 익혀보세요.</p>
         </div>
         <div className="home-map-visual" aria-hidden="true">
